@@ -7,9 +7,14 @@ audit for everything else.
 
 See [docs/PLAN.md](docs/PLAN.md) for the architecture and roadmap.
 
-## Status: Phase 4 (skills + tasks)
+## Status: Phase 5 (desktop panel)
 
 Working today:
+
+- **Web chat panel** (`friday --serve`) — a localhost daemon (FastAPI +
+  WebSocket) serving a streaming chat UI. Permission prompts appear as
+  native dialogs; a memories drawer shows what FRIDAY remembers. This is the
+  UI-agnostic backend a native tray app (Tauri) can wrap next.
 
 - **Skills** — plug any MCP server into FRIDAY with a `[skills.NAME]` config
   entry (calendar, email, weather, Notion, …). Untrusted skills confirm every
@@ -46,6 +51,13 @@ uv run friday "summarize ~/Documents/taxes"
 
 Requires Python 3.13+, [uv](https://docs.astral.sh/uv/), and the Claude Code
 CLI (the Agent SDK's runtime) with an authenticated Anthropic account.
+
+### Desktop panel
+
+```bash
+uv sync --extra server    # adds fastapi, uvicorn, websockets
+uv run friday --serve     # chat panel at http://127.0.0.1:4527
+```
 
 ### Voice
 

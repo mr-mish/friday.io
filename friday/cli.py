@@ -76,6 +76,23 @@ async def _main(args: argparse.Namespace) -> int:
             f"Create friday.toml (see friday.example.toml) to grant access.{RESET}\n"
         )
 
+    if args.serve:
+        from friday.server import SERVER_INSTALL_HINT, server_available
+
+        if not server_available():
+            print(f"{YELLOW}{SERVER_INSTALL_HINT}{RESET}")
+            return 1
+        import uvicorn
+
+        from friday.server.app import create_app
+
+        print(f"{CYAN}FRIDAY daemon{RESET} — chat panel at http://127.0.0.1:{args.port}")
+        uv_config = uvicorn.Config(
+            create_app(config), host="127.0.0.1", port=args.port, log_level="warning"
+        )
+        await uvicorn.Server(uv_config).serve()
+        return 0
+
     if args.tasks:
         if not config.tasks:
             print("No tasks defined. Add [tasks.NAME] sections to friday.toml.")
@@ -160,6 +177,8 @@ def main() -> None:
         metavar="NAME",
         help="run a named task from friday.toml (schedule via cron/launchd)",
     )
+    parser.add_argument("--serve", action="store_true", help="run the daemon + web chat panel")
+    parser.add_argument("--port", type=int, default=4527, help="daemon port (default 4527)")
     parser.add_argument("--version", action="version", version=f"friday {__version__}")
     args = parser.parse_args()
     try:
