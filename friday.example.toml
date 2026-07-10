@@ -1,0 +1,24 @@
+# FRIDAY configuration. Copy to ./friday.toml or ~/.config/friday/friday.toml
+# and edit. Paths support ~ and environment variables.
+
+[filesystem]
+# Folders FRIDAY may read and write without asking each time.
+# Everything else requires per-action confirmation.
+granted_roots = [
+    "~/Documents",
+    "~/Projects",
+]
+
+# Extra paths FRIDAY may never touch, even with confirmation.
+# These EXTEND the built-in deny list (~/.ssh, ~/.gnupg, ~/.aws, ...).
+denied_paths = []
+
+[agent]
+# Model override; omit to use the Agent SDK default.
+# model = "claude-sonnet-5"
+
+# Extra instructions appended to FRIDAY's system prompt.
+system_prompt_extra = ""
+
+# Where FRIDAY keeps its audit log and (later) memory. Default shown.
+# data_dir = "~/.local/share/friday"
