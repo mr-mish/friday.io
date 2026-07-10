@@ -6,11 +6,31 @@ Voices are ONNX models fetched once into the FRIDAY data directory
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 DEFAULT_VOICE = "en_US-lessac-medium"
+
+
+def download_env() -> dict[str, str]:
+    """Subprocess env with a CA bundle for stdlib urlopen.
+
+    Piper's downloader uses plain urllib, which on some Python builds (the
+    python.org macOS installer, notably) has no CA certificates configured
+    and fails every HTTPS request with CERTIFICATE_VERIFY_FAILED. Pointing
+    SSL_CERT_FILE at certifi's bundle fixes that without touching the system.
+    """
+    env = os.environ.copy()
+    if "SSL_CERT_FILE" not in env:
+        try:
+            import certifi
+
+            env["SSL_CERT_FILE"] = certifi.where()
+        except ImportError:
+            pass
+    return env
 
 
 def ensure_voice(name: str, voices_dir: Path) -> Path:
@@ -21,6 +41,7 @@ def ensure_voice(name: str, voices_dir: Path) -> Path:
         subprocess.run(
             [sys.executable, "-m", "piper.download_voices", "--data-dir", str(voices_dir), name],
             check=True,
+            env=download_env(),
         )
     return onnx
 

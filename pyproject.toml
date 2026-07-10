@@ -15,6 +15,7 @@ voice = [
     "piper-tts>=1.2",
     "sounddevice>=0.4.6",
     "numpy>=1.26",
+    "certifi>=2024.0",  # CA bundle for model downloads (see tts.download_env)
 ]
 
 [project.scripts]

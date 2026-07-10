@@ -33,10 +33,15 @@ def run(config: FridayConfig) -> int:
         voice_path = ensure_voice(config.tts_voice, config.voices_dir)
     except Exception:
         print(
-            "\nFAIL — could not download the voice model. Model downloads need\n"
-            "access to huggingface.co; run this on your own machine (not a\n"
-            "restricted sandbox) or pre-place the model in "
-            f"{config.voices_dir}"
+            "\nFAIL — could not download the voice model; the underlying error is\n"
+            "printed above. Common causes:\n"
+            "  - CERTIFICATE_VERIFY_FAILED: your Python has no CA certificates\n"
+            "    (python.org macOS builds). Reinstall voice deps to pull in\n"
+            "    certifi (uv sync --extra voice), or run\n"
+            '    "/Applications/Python 3.13/Install Certificates.command".\n'
+            "  - No access to huggingface.co (restricted network/sandbox):\n"
+            "    run this on your own machine, or pre-place the model in\n"
+            f"    {config.voices_dir}"
         )
         return 1
     speaker = Speaker(voice_path)

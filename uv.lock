@@ -305,6 +305,7 @@ dependencies = [
 
 [package.optional-dependencies]
 voice = [
+    { name = "certifi" },
     { name = "faster-whisper" },
     { name = "numpy" },
     { name = "piper-tts" },
@@ -320,6 +321,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", marker = "extra == 'voice'", specifier = ">=2024.0" },
     { name = "claude-agent-sdk", specifier = ">=0.1.0" },
     { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.0" },
     { name = "numpy", marker = "extra == 'voice'", specifier = ">=1.26" },
