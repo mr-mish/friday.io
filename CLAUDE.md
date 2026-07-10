@@ -27,6 +27,7 @@ uv run friday --voice    # push-to-talk voice mode (needs mic + models)
 uv run friday --doctor   # voice self-test (TTS→STT roundtrip, timings)
 uv run friday --remember "fact"   # store a memory; --memories lists, --forget ID deletes
 uv run friday --tasks             # list named tasks; --run-task NAME runs one
+uv run friday --undo              # revert FRIDAY's last file change; --history lists
 uv sync --extra server            # daemon deps (fastapi, uvicorn, websockets)
 uv run friday --serve             # web chat panel at http://127.0.0.1:4527
 ```
@@ -43,6 +44,11 @@ uv run friday --serve             # web chat panel at http://127.0.0.1:4527
   auto-allowed inside granted roots, DANGEROUS always confirms). The deny
   list wins over everything, including user confirmation.
 - `friday/fs/audit.py` — append-only JSONL journal of every tool call.
+- `friday/fs/undo.py` — pre-write snapshots + change journal in
+  `data_dir/undo/`. The agent snapshots in `_snapshot_for_undo` at both
+  approval points (hook ALLOW, and can_use_tool after a confirmed ask);
+  undoing a "create" moves the file to trash rather than deleting it.
+  Bash-driven writes are not tracked — that's why Bash always confirms.
 - `friday/config.py` — `friday.toml` loader ($FRIDAY_CONFIG, ./friday.toml,
   ~/.config/friday/friday.toml). No config = no granted roots = everything
   confirms. User `denied_paths` extend the built-in deny list, never shrink it.
@@ -56,7 +62,8 @@ uv run friday --serve             # web chat panel at http://127.0.0.1:4527
   backend replaces. `tools.py` exposes remember/recall/forget/search_files to
   the agent as in-process MCP tools (server name "memory"); recent memories
   are injected into the system prompt at session start. The index walks
-  granted roots incrementally (mtime/size) and enforces the deny list at
+  granted roots incrementally (mtime/size), extracts text from plain files
+  plus PDF (pypdf) and DOCX (python-docx), and enforces the deny list at
   index time.
 - `friday/server/` — optional extra (`server`); localhost FastAPI daemon
   (`app.py`) wrapping one `FridayAgent`. A single WebSocket client streams

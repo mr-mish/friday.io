@@ -25,6 +25,8 @@ TEXT_EXTENSIONS = {
     ".txt", ".md", ".rst", ".csv", ".json", ".yaml", ".yml", ".toml", ".ini",
     ".py", ".js", ".ts", ".html", ".css", ".sh", ".sql", ".tex", ".log",
 }  # fmt: skip
+DOCUMENT_EXTENSIONS = {".pdf", ".docx"}
+INDEXABLE_EXTENSIONS = TEXT_EXTENSIONS | DOCUMENT_EXTENSIONS
 SKIP_DIRS = {"node_modules", "__pycache__", ".venv", "venv", ".git"}
 MAX_FILE_BYTES = 2_000_000
 CHUNK_CHARS = 1500
@@ -38,6 +40,24 @@ class Hit:
 
 def _chunks(text: str) -> list[str]:
     return [text[i : i + CHUNK_CHARS] for i in range(0, len(text), CHUNK_CHARS)]
+
+
+def _extract_text(path: Path) -> str | None:
+    """Best-effort text extraction; None means skip the file."""
+    suffix = path.suffix.lower()
+    try:
+        if suffix == ".pdf":
+            from pypdf import PdfReader
+
+            return "\n".join(page.extract_text() or "" for page in PdfReader(path).pages)
+        if suffix == ".docx":
+            import docx
+
+            return "\n".join(p.text for p in docx.Document(str(path)).paragraphs)
+        return path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        # Corrupt/encrypted/unreadable documents must never break a refresh.
+        return None
 
 
 class FileIndex:
@@ -68,7 +88,7 @@ class FileIndex:
                 ]
                 for name in filenames:
                     path = Path(dirpath) / name
-                    if name.startswith(".") or path.suffix.lower() not in TEXT_EXTENSIONS:
+                    if name.startswith(".") or path.suffix.lower() not in INDEXABLE_EXTENSIONS:
                         continue
                     if is_under(path, self.denied):
                         continue
@@ -97,9 +117,8 @@ class FileIndex:
             self._db.execute("DELETE FROM file_chunks WHERE path = ?", (path,))
             self._db.execute("DELETE FROM indexed_files WHERE path = ?", (path,))
         for path in stale:
-            try:
-                text = Path(path).read_text(encoding="utf-8", errors="ignore")
-            except OSError:
+            text = _extract_text(Path(path))
+            if text is None:
                 continue
             self._db.executemany(
                 "INSERT INTO file_chunks (body, path) VALUES (?, ?)",
