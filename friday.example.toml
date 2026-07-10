@@ -1,0 +1,36 @@
+# FRIDAY configuration. Copy to ./friday.toml or ~/.config/friday/friday.toml
+# and edit. Paths support ~ and environment variables.
+
+[filesystem]
+# Folders FRIDAY may read and write without asking each time.
+# Everything else requires per-action confirmation.
+granted_roots = [
+    "~/Documents",
+    "~/Projects",
+]
+
+# Extra paths FRIDAY may never touch, even with confirmation.
+# These EXTEND the built-in deny list (~/.ssh, ~/.gnupg, ~/.aws, ...).
+denied_paths = []
+
+[agent]
+# Model override; omit to use the Agent SDK default.
+# model = "claude-sonnet-5"
+
+# Extra instructions appended to FRIDAY's system prompt.
+system_prompt_extra = ""
+
+# Where FRIDAY keeps its audit log, voice models, and (later) memory.
+# data_dir = "~/.local/share/friday"
+
+[voice]
+# Speech-to-text model size: tiny / base / small / medium (faster-whisper).
+# Bigger = more accurate, slower. Downloaded on first use.
+stt_model = "base"
+
+# Piper voice for FRIDAY's speech. Browse voices at
+# https://rhasspy.github.io/piper-samples/  Downloaded on first use.
+tts_voice = "en_US-lessac-medium"
+
+# Force a spoken language (e.g. "en"); omit for auto-detect.
+# language = "en"
