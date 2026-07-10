@@ -33,7 +33,10 @@ Working today:
   own (or via `friday --remember`), recalls them in every future session,
   and forgets on request
 - **Content search** — an incremental full-text index over your granted
-  folders; ask for files by what's in them, not what they're called
+  folders, including PDF and Word documents; ask for files by what's in
+  them, not what they're called
+- **Undo** — every file FRIDAY writes or edits is snapshotted first;
+  `friday --undo` reverts the last change, `friday --history` lists them
 - File powers via the Claude Agent SDK: search, read, write, edit, shell
 - Permission gate: reads/writes inside granted roots are automatic;
   shell commands and out-of-root access require confirmation; credential

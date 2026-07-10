@@ -93,6 +93,21 @@ async def _main(args: argparse.Namespace) -> int:
         await uvicorn.Server(uv_config).serve()
         return 0
 
+    if args.undo or args.history:
+        from friday.fs.undo import UndoJournal
+
+        journal = UndoJournal(config.data_dir)
+        if args.undo:
+            print(journal.undo_last())
+        if args.history:
+            changes = journal.history()
+            if not changes:
+                print("No changes journaled yet.")
+            for change in changes:
+                flag = " (undone)" if change.undone else ""
+                print(f"[{change.id}] {change.ts[:19]} {change.action} {change.path}{flag}")
+        return 0
+
     if args.tasks:
         if not config.tasks:
             print("No tasks defined. Add [tasks.NAME] sections to friday.toml.")
@@ -177,6 +192,8 @@ def main() -> None:
         metavar="NAME",
         help="run a named task from friday.toml (schedule via cron/launchd)",
     )
+    parser.add_argument("--undo", action="store_true", help="revert FRIDAY's last file change")
+    parser.add_argument("--history", action="store_true", help="list journaled file changes")
     parser.add_argument("--serve", action="store_true", help="run the daemon + web chat panel")
     parser.add_argument("--port", type=int, default=4527, help="daemon port (default 4527)")
     parser.add_argument("--version", action="version", version=f"friday {__version__}")

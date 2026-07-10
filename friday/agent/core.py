@@ -33,6 +33,7 @@ from claude_agent_sdk import (
 from friday.config import FridayConfig
 from friday.fs.audit import AuditLog
 from friday.fs.permissions import Decision, PermissionGate, Verdict
+from friday.fs.undo import UndoJournal
 from friday.memory.index import FileIndex
 from friday.memory.store import MemoryStore
 from friday.memory.tools import build_memory_server
@@ -110,6 +111,7 @@ class FridayAgent:
         self.audit = AuditLog(config.audit_log_path)
         self.store = MemoryStore(config.db_path)
         self.index = FileIndex(config.db_path, config.granted_roots, config.denied_paths)
+        self.undo = UndoJournal(config.data_dir)
         self._confirm = confirm
         cwd = config.granted_roots[0] if config.granted_roots else Path.home()
         # `tools` sets what exists; `allowed_tools` would AUTO-APPROVE calls
@@ -156,6 +158,8 @@ class FridayAgent:
             tier=decision.tier.value,
             reason=decision.reason,
         )
+        if decision.verdict is Verdict.ALLOW:
+            self._snapshot_for_undo(tool_name, tool_input)
         permission = {
             Verdict.ALLOW: "allow",
             Verdict.CONFIRM: "ask",  # routes to _can_use_tool, which prompts
@@ -182,7 +186,13 @@ class FridayAgent:
             )
             if not approved:
                 return PermissionResultDeny(message="The user declined this action.")
+        self._snapshot_for_undo(tool_name, tool_input)
         return PermissionResultAllow()
+
+    def _snapshot_for_undo(self, tool_name: str, tool_input: dict) -> None:
+        """Journal the pre-write state so `friday --undo` can revert it."""
+        if tool_name in ("Write", "Edit") and tool_input.get("file_path"):
+            self.undo.record_change(Path(str(tool_input["file_path"])))
 
     async def ask(self, prompt: str) -> AsyncIterator[AgentEvent]:
         """Send one user turn; yield events as the response streams in."""
