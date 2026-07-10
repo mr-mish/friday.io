@@ -76,12 +76,48 @@ async def _main(args: argparse.Namespace) -> int:
             f"Create friday.toml (see friday.example.toml) to grant access.{RESET}\n"
         )
 
+    if args.serve:
+        from friday.server import SERVER_INSTALL_HINT, server_available
+
+        if not server_available():
+            print(f"{YELLOW}{SERVER_INSTALL_HINT}{RESET}")
+            return 1
+        import uvicorn
+
+        from friday.server.app import create_app
+
+        print(f"{CYAN}FRIDAY daemon{RESET} — chat panel at http://127.0.0.1:{args.port}")
+        uv_config = uvicorn.Config(
+            create_app(config), host="127.0.0.1", port=args.port, log_level="warning"
+        )
+        await uvicorn.Server(uv_config).serve()
+        return 0
+
+    if args.tasks:
+        if not config.tasks:
+            print("No tasks defined. Add [tasks.NAME] sections to friday.toml.")
+            return 0
+        for name, task in config.tasks.items():
+            note = f" — {task.description}" if task.description else ""
+            print(f"{BOLD}{name}{RESET}{note}")
+            print(f"  {DIM}{task.prompt}{RESET}")
+        return 0
+
+    prompt = " ".join(args.prompt) if args.prompt else ""
+    if args.run_task:
+        task = config.tasks.get(args.run_task)
+        if task is None:
+            known = ", ".join(config.tasks) or "none defined"
+            print(f"Unknown task '{args.run_task}' (known: {known})")
+            return 2
+        prompt = task.prompt
+
     async with FridayAgent(config, confirm=_confirm) as agent:
         if args.voice:
             return await _run_voice(agent, config)
 
-        if args.prompt:
-            await _run_turn(agent, " ".join(args.prompt))
+        if prompt:
+            await _run_turn(agent, prompt)
             return 0
 
         print(f"{CYAN}FRIDAY v{__version__}{RESET} — type your request, or 'exit' to quit.\n")
@@ -135,6 +171,14 @@ def main() -> None:
     parser.add_argument("--remember", metavar="FACT", help="store a long-term memory and exit")
     parser.add_argument("--memories", action="store_true", help="list stored memories and exit")
     parser.add_argument("--forget", type=int, metavar="ID", help="delete a memory by id and exit")
+    parser.add_argument("--tasks", action="store_true", help="list named tasks and exit")
+    parser.add_argument(
+        "--run-task",
+        metavar="NAME",
+        help="run a named task from friday.toml (schedule via cron/launchd)",
+    )
+    parser.add_argument("--serve", action="store_true", help="run the daemon + web chat panel")
+    parser.add_argument("--port", type=int, default=4527, help="daemon port (default 4527)")
     parser.add_argument("--version", action="version", version=f"friday {__version__}")
     args = parser.parse_args()
     try:

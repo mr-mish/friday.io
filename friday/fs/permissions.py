@@ -78,6 +78,10 @@ class PermissionGate:
         self.config = config
 
     def evaluate(self, tool_name: str, tool_input: dict) -> Decision:
+        if tool_name in ("WebSearch", "WebFetch") and self.config.allow_web:
+            return Decision(Verdict.ALLOW, Tier.READ, "web access enabled in config")
+        if tool_name not in TOOL_RULES and (skill := self._evaluate_skill_tool(tool_name)):
+            return skill
         tier, path_keys = TOOL_RULES.get(tool_name, (Tier.DANGEROUS, []))
         paths = [
             Path(str(tool_input[k])).expanduser().resolve()
@@ -105,6 +109,22 @@ class PermissionGate:
                 paths,
             )
         return Decision(Verdict.ALLOW, tier, f"{tier.value} within granted roots", paths)
+
+    def _evaluate_skill_tool(self, tool_name: str) -> Decision | None:
+        """Policy for tools from user-configured MCP skill servers.
+
+        Trusted skills ("allow") run without prompting; everything else —
+        including tools from servers we don't recognize — falls through to
+        the default confirm-everything rule.
+        """
+        if not tool_name.startswith("mcp__"):
+            return None
+        parts = tool_name.split("__", 2)
+        server = parts[1] if len(parts) > 1 else ""
+        skill = self.config.skills.get(server)
+        if skill and skill.trust == "allow":
+            return Decision(Verdict.ALLOW, Tier.READ, f"trusted skill '{server}'")
+        return None
 
     def _evaluate_bash(self, command: str) -> Decision:
         if _BASH_HARD_DENY.search(command):

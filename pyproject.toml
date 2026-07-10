@@ -10,6 +10,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+server = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "websockets>=13",
+]
 voice = [
     "faster-whisper>=1.0",
     "piper-tts>=1.2",
@@ -26,6 +31,8 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.6",
+    "httpx>=0.27",  # starlette TestClient
+    "playwright>=1.4",  # browser E2E for the chat panel (tests/test_panel_e2e.py)
 ]
 
 [build-system]

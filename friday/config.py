@@ -35,6 +35,25 @@ DEFAULT_DATA_DIR = "~/.local/share/friday"
 
 
 @dataclass
+class SkillConfig:
+    """One external MCP server = one skill (calendar, email, weather, …)."""
+
+    command: str | None = None  # stdio server: executable
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+    url: str | None = None  # http server (mutually exclusive with command)
+    trust: str = "confirm"  # "confirm" = ask per call; "allow" = auto-approve
+
+
+@dataclass
+class TaskConfig:
+    """A named prompt the user can run on demand or from cron/launchd."""
+
+    prompt: str
+    description: str = ""
+
+
+@dataclass
 class FridayConfig:
     granted_roots: list[Path] = field(default_factory=list)
     denied_paths: list[Path] = field(
@@ -46,6 +65,9 @@ class FridayConfig:
     stt_model: str = "base"  # faster-whisper size: tiny/base/small/medium
     tts_voice: str = "en_US-lessac-medium"  # Piper voice name
     language: str | None = None  # None = auto-detect
+    allow_web: bool = False  # auto-approve WebSearch/WebFetch instead of confirming
+    skills: dict[str, SkillConfig] = field(default_factory=dict)
+    tasks: dict[str, TaskConfig] = field(default_factory=dict)
 
     @property
     def audit_log_path(self) -> Path:
@@ -97,4 +119,20 @@ def load_config(path: Path | None = None) -> FridayConfig:
     config.stt_model = voice.get("stt_model", config.stt_model)
     config.tts_voice = voice.get("tts_voice", config.tts_voice)
     config.language = voice.get("language", config.language)
+
+    config.allow_web = bool(raw.get("agent", {}).get("allow_web", False))
+    for name, skill in raw.get("skills", {}).items():
+        if skill.get("trust", "confirm") not in ("confirm", "allow"):
+            raise ValueError(f"skill '{name}': trust must be 'confirm' or 'allow'")
+        config.skills[name] = SkillConfig(
+            command=skill.get("command"),
+            args=list(skill.get("args", [])),
+            env=dict(skill.get("env", {})),
+            url=skill.get("url"),
+            trust=skill.get("trust", "confirm"),
+        )
+    for name, task in raw.get("tasks", {}).items():
+        config.tasks[name] = TaskConfig(
+            prompt=task["prompt"], description=task.get("description", "")
+        )
     return config

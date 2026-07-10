@@ -20,6 +20,9 @@ denied_paths = []
 # Extra instructions appended to FRIDAY's system prompt.
 system_prompt_extra = ""
 
+# Let FRIDAY search/fetch the web without confirming each request.
+allow_web = false
+
 # Where FRIDAY keeps its audit log, voice models, and (later) memory.
 # data_dir = "~/.local/share/friday"
 
@@ -34,3 +37,26 @@ tts_voice = "en_US-lessac-medium"
 
 # Force a spoken language (e.g. "en"); omit for auto-detect.
 # language = "en"
+
+# ---------------------------------------------------------------------------
+# Skills: every [skills.NAME] section plugs one MCP server into FRIDAY.
+# trust = "confirm" (default) asks before every call; "allow" auto-approves —
+# only for servers you fully trust. The name "memory" is reserved.
+# ---------------------------------------------------------------------------
+
+# [skills.weather]
+# command = "uvx"
+# args = ["mcp-server-weather"]
+# trust = "allow"
+
+# [skills.notion]
+# url = "https://mcp.notion.com/mcp"
+
+# ---------------------------------------------------------------------------
+# Tasks: named prompts. Run with `friday --run-task NAME`; schedule with
+# cron/launchd, e.g.:  0 17 * * 5  cd ~/friday.io && uv run friday --run-task weekly
+# ---------------------------------------------------------------------------
+
+# [tasks.weekly]
+# description = "Friday afternoon review"
+# prompt = "Summarize what changed in my granted folders this week."
