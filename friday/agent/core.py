@@ -43,7 +43,9 @@ type AgentEvent = tuple[str, str]  # (kind, payload) — kind: "text" | "tool" |
 
 type ConfirmFn = Callable[[str, dict, Decision], Awaitable[bool]]
 
-FRIDAY_TOOLS = ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "TodoWrite"]
+FRIDAY_TOOLS = [
+    "Read", "Glob", "Grep", "Write", "Edit", "Bash", "TodoWrite", "WebSearch", "WebFetch",
+]  # fmt: skip
 
 BASE_SYSTEM_PROMPT = """\
 You are FRIDAY, a personal assistant running on the user's own computer.
@@ -66,6 +68,24 @@ You have long-term memory. When the user states a lasting preference or fact
 remember tool without being asked. Use recall to look things up, forget when
 the user retracts something, and search_files to find files by their content.
 {memories}"""
+
+
+def _skill_servers(config: FridayConfig) -> dict:
+    """User-configured MCP skills ([skills.NAME] in friday.toml) -> SDK config."""
+    servers: dict = {}
+    for name, skill in config.skills.items():
+        if name == "memory":
+            continue  # reserved for FRIDAY's built-in memory server
+        if skill.url:
+            servers[name] = {"type": "http", "url": skill.url}
+        elif skill.command:
+            servers[name] = {
+                "type": "stdio",
+                "command": skill.command,
+                "args": skill.args,
+                "env": skill.env,
+            }
+    return servers
 
 
 def _system_prompt(config: FridayConfig, store: MemoryStore) -> str:
@@ -98,7 +118,10 @@ class FridayAgent:
             ClaudeAgentOptions(
                 system_prompt=_system_prompt(config, self.store),
                 tools=FRIDAY_TOOLS,
-                mcp_servers={"memory": build_memory_server(self.store, self.index)},
+                mcp_servers={
+                    "memory": build_memory_server(self.store, self.index),
+                    **_skill_servers(config),
+                },
                 model=config.model,
                 cwd=str(cwd),
                 can_use_tool=self._can_use_tool,

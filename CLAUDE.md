@@ -7,9 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 FRIDAY is a local-first personal AI assistant (voice + text) with safe
 filesystem powers, built on the Claude Agent SDK. The architecture and phased
 roadmap live in `docs/PLAN.md` — read it before making structural changes.
-Currently at Phase 3: text REPL, push-to-talk voice (local Whisper STT,
-local Piper TTS, sentence-streamed playback), long-term memory, and a
-full-text index over granted folders.
+Currently at Phase 4: text REPL, push-to-talk voice (local Whisper STT,
+local Piper TTS, sentence-streamed playback), long-term memory, a full-text
+index over granted folders, config-driven MCP skills, and named tasks
+(`--run-task`, scheduled externally via cron/launchd).
 
 ## Commands
 
@@ -24,6 +25,7 @@ uv run friday --config path/to/friday.toml "one-shot prompt"
 uv run friday --voice    # push-to-talk voice mode (needs mic + models)
 uv run friday --doctor   # voice self-test (TTS→STT roundtrip, timings)
 uv run friday --remember "fact"   # store a memory; --memories lists, --forget ID deletes
+uv run friday --tasks             # list named tasks; --run-task NAME runs one
 ```
 
 ## Architecture
@@ -41,6 +43,10 @@ uv run friday --remember "fact"   # store a memory; --memories lists, --forget I
 - `friday/config.py` — `friday.toml` loader ($FRIDAY_CONFIG, ./friday.toml,
   ~/.config/friday/friday.toml). No config = no granted roots = everything
   confirms. User `denied_paths` extend the built-in deny list, never shrink it.
+  Also parses `[skills.NAME]` (external MCP servers; `trust = "allow"` makes
+  the gate auto-approve that server's tools, default is confirm-per-call) and
+  `[tasks.NAME]` (named prompts for `--run-task`; cron/launchd does the
+  scheduling). The skill name "memory" is reserved for the built-in server.
 - `friday/cli.py` — REPL / one-shot entry point (`friday` script).
 - `friday/memory/` — long-term memory + file content index, both SQLite FTS5
   (BM25) in `data_dir/friday.db`; `search()` is the interface a future vector
