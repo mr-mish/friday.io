@@ -56,6 +56,20 @@ async def _main(args: argparse.Namespace) -> int:
         from friday.voice import doctor
 
         return doctor.run(config)
+
+    if args.remember or args.memories or args.forget:
+        from friday.memory.store import MemoryStore
+
+        store = MemoryStore(config.db_path)
+        if args.remember:
+            memory_id = store.remember(args.remember)
+            print(f"Remembered (id {memory_id}).")
+        if args.forget:
+            print("Forgotten." if store.forget(args.forget) else "No memory with that id.")
+        if args.memories:
+            for m in store.recent():
+                print(f"[{m.id}] {m.fact}  {DIM}{m.created[:10]}{RESET}")
+        return 0
     if not config.granted_roots:
         print(
             f"{YELLOW}No granted folders configured — every file action will ask first.\n"
@@ -118,6 +132,9 @@ def main() -> None:
     parser.add_argument("--model", help="override the model for this session")
     parser.add_argument("--voice", action="store_true", help="voice mode (push-to-talk)")
     parser.add_argument("--doctor", action="store_true", help="self-test the voice stack")
+    parser.add_argument("--remember", metavar="FACT", help="store a long-term memory and exit")
+    parser.add_argument("--memories", action="store_true", help="list stored memories and exit")
+    parser.add_argument("--forget", type=int, metavar="ID", help="delete a memory by id and exit")
     parser.add_argument("--version", action="version", version=f"friday {__version__}")
     args = parser.parse_args()
     try:

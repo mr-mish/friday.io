@@ -52,6 +52,10 @@ class FridayConfig:
         return self.data_dir / "audit.jsonl"
 
     @property
+    def db_path(self) -> Path:
+        return self.data_dir / "friday.db"
+
+    @property
     def voices_dir(self) -> Path:
         return self.data_dir / "voices"
 

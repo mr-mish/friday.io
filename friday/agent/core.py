@@ -33,12 +33,15 @@ from claude_agent_sdk import (
 from friday.config import FridayConfig
 from friday.fs.audit import AuditLog
 from friday.fs.permissions import Decision, PermissionGate, Verdict
+from friday.memory.index import FileIndex
+from friday.memory.store import MemoryStore
+from friday.memory.tools import build_memory_server
 
 # What the user hears/reads is produced from these event tuples so that the
-# CLI and (later) the voice pipeline can render the same stream differently.
-AgentEvent = tuple[str, str]  # (kind, payload) — kind: "text" | "tool" | "done"
+# CLI and the voice pipeline can render the same stream differently.
+type AgentEvent = tuple[str, str]  # (kind, payload) — kind: "text" | "tool" | "done"
 
-ConfirmFn = Callable[[str, dict, Decision], Awaitable[bool]]
+type ConfirmFn = Callable[[str, dict, Decision], Awaitable[bool]]
 
 FRIDAY_TOOLS = ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "TodoWrite"]
 
@@ -57,12 +60,22 @@ explain what was denied and let the user decide.
 
 You may only act on the user's files within these granted folders:
 {roots}
-"""
+
+You have long-term memory. When the user states a lasting preference or fact
+("my accountant is Dana", "always export invoices as PDF"), store it with the
+remember tool without being asked. Use recall to look things up, forget when
+the user retracts something, and search_files to find files by their content.
+{memories}"""
 
 
-def _system_prompt(config: FridayConfig) -> str:
+def _system_prompt(config: FridayConfig, store: MemoryStore) -> str:
     roots = "\n".join(f"- {r}" for r in config.granted_roots) or "- (none granted yet)"
-    prompt = BASE_SYSTEM_PROMPT.format(roots=roots)
+    memories = store.recent(limit=30)
+    memory_block = ""
+    if memories:
+        lines = "\n".join(f"- [{m.id}] {m.fact}" for m in memories)
+        memory_block = f"\nWhat you currently remember:\n{lines}\n"
+    prompt = BASE_SYSTEM_PROMPT.format(roots=roots, memories=memory_block)
     if config.system_prompt_extra:
         prompt += "\n" + config.system_prompt_extra
     return prompt
@@ -75,14 +88,17 @@ class FridayAgent:
         self.config = config
         self.gate = PermissionGate(config)
         self.audit = AuditLog(config.audit_log_path)
+        self.store = MemoryStore(config.db_path)
+        self.index = FileIndex(config.db_path, config.granted_roots, config.denied_paths)
         self._confirm = confirm
         cwd = config.granted_roots[0] if config.granted_roots else Path.home()
         # `tools` sets what exists; `allowed_tools` would AUTO-APPROVE calls
         # before can_use_tool runs, silently bypassing the permission gate.
         self._client = ClaudeSDKClient(
             ClaudeAgentOptions(
-                system_prompt=_system_prompt(config),
+                system_prompt=_system_prompt(config, self.store),
                 tools=FRIDAY_TOOLS,
+                mcp_servers={"memory": build_memory_server(self.store, self.index)},
                 model=config.model,
                 cwd=str(cwd),
                 can_use_tool=self._can_use_tool,
@@ -169,6 +185,8 @@ def _describe_tool(block: ToolUseBlock) -> str:
         or block.input.get("path")
         or block.input.get("pattern")
         or block.input.get("command")
+        or block.input.get("query")
+        or block.input.get("fact")
         or ""
     )
     arg = str(arg)

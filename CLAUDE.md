@@ -7,8 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 FRIDAY is a local-first personal AI assistant (voice + text) with safe
 filesystem powers, built on the Claude Agent SDK. The architecture and phased
 roadmap live in `docs/PLAN.md` — read it before making structural changes.
-Currently at Phase 2: text REPL plus push-to-talk voice (local Whisper STT,
-local Piper TTS, sentence-streamed playback).
+Currently at Phase 3: text REPL, push-to-talk voice (local Whisper STT,
+local Piper TTS, sentence-streamed playback), long-term memory, and a
+full-text index over granted folders.
 
 ## Commands
 
@@ -22,6 +23,7 @@ uv run friday            # run the assistant (needs Claude Code CLI + auth)
 uv run friday --config path/to/friday.toml "one-shot prompt"
 uv run friday --voice    # push-to-talk voice mode (needs mic + models)
 uv run friday --doctor   # voice self-test (TTS→STT roundtrip, timings)
+uv run friday --remember "fact"   # store a memory; --memories lists, --forget ID deletes
 ```
 
 ## Architecture
@@ -40,6 +42,13 @@ uv run friday --doctor   # voice self-test (TTS→STT roundtrip, timings)
   ~/.config/friday/friday.toml). No config = no granted roots = everything
   confirms. User `denied_paths` extend the built-in deny list, never shrink it.
 - `friday/cli.py` — REPL / one-shot entry point (`friday` script).
+- `friday/memory/` — long-term memory + file content index, both SQLite FTS5
+  (BM25) in `data_dir/friday.db`; `search()` is the interface a future vector
+  backend replaces. `tools.py` exposes remember/recall/forget/search_files to
+  the agent as in-process MCP tools (server name "memory"); recent memories
+  are injected into the system prompt at session start. The index walks
+  granted roots incrementally (mtime/size) and enforces the deny list at
+  index time.
 - `friday/voice/` — optional extra (`voice`); every heavy import is lazy so
   text mode and tests never need it. `chunker.SentenceStream` turns the
   streaming response into speakable sentences (the latency lever);
@@ -61,7 +70,7 @@ uv run friday --doctor   # voice self-test (TTS→STT roundtrip, timings)
 
 ## Conventions
 
-- Python 3.11+, `uv` for everything; ruff line length 100.
+- Python 3.13+ (CI also tests 3.14), `uv` for everything; ruff line length 100.
 - Tests cover the safety-critical modules (permissions, config, audit) and
   must not require the Claude CLI, network, audio hardware, or ML models —
   voice logic is tested through fakes (see tests/test_voice_session.py).

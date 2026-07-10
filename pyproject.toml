@@ -3,7 +3,7 @@ name = "friday"
 version = "0.1.0"
 description = "FRIDAY — a local-first personal AI assistant with voice and text, safe filesystem powers, and an agentic Claude core"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 license = { text = "MIT" }
 dependencies = [
     "claude-agent-sdk>=0.1.0",
@@ -15,6 +15,7 @@ voice = [
     "piper-tts>=1.2",
     "sounddevice>=0.4.6",
     "numpy>=1.26",
+    "certifi>=2024.0",  # CA bundle for model downloads (see tts.download_env)
 ]
 
 [project.scripts]
@@ -36,7 +37,7 @@ packages = ["friday"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
