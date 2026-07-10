@@ -43,10 +43,17 @@ class FridayConfig:
     model: str | None = None  # None = Agent SDK default
     data_dir: Path = field(default_factory=lambda: Path(DEFAULT_DATA_DIR).expanduser())
     system_prompt_extra: str = ""
+    stt_model: str = "base"  # faster-whisper size: tiny/base/small/medium
+    tts_voice: str = "en_US-lessac-medium"  # Piper voice name
+    language: str | None = None  # None = auto-detect
 
     @property
     def audit_log_path(self) -> Path:
         return self.data_dir / "audit.jsonl"
+
+    @property
+    def voices_dir(self) -> Path:
+        return self.data_dir / "voices"
 
 
 def _expand(raw: str) -> Path:
@@ -81,4 +88,9 @@ def load_config(path: Path | None = None) -> FridayConfig:
     config.denied_paths += [_expand(p) for p in fs.get("denied_paths", [])]
     if data_dir := raw.get("data_dir"):
         config.data_dir = _expand(data_dir)
+
+    voice = raw.get("voice", {})
+    config.stt_model = voice.get("stt_model", config.stt_model)
+    config.tts_voice = voice.get("tts_voice", config.tts_voice)
+    config.language = voice.get("language", config.language)
     return config

@@ -52,6 +52,10 @@ async def _main(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
     if args.model:
         config.model = args.model
+    if args.doctor:
+        from friday.voice import doctor
+
+        return doctor.run(config)
     if not config.granted_roots:
         print(
             f"{YELLOW}No granted folders configured — every file action will ask first.\n"
@@ -59,6 +63,9 @@ async def _main(args: argparse.Namespace) -> int:
         )
 
     async with FridayAgent(config, confirm=_confirm) as agent:
+        if args.voice:
+            return await _run_voice(agent, config)
+
         if args.prompt:
             await _run_turn(agent, " ".join(args.prompt))
             return 0
@@ -84,11 +91,33 @@ async def _main(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _run_voice(agent: FridayAgent, config) -> int:
+    from friday.voice import VOICE_INSTALL_HINT, voice_available
+
+    if not voice_available():
+        print(f"{YELLOW}{VOICE_INSTALL_HINT}{RESET}")
+        return 1
+
+    from friday.voice.session import VoiceSession
+    from friday.voice.stt import Transcriber
+    from friday.voice.tts import Speaker, ensure_voice
+
+    print(f"{DIM}Loading voice models (first run downloads them)…{RESET}")
+    voice_path = ensure_voice(config.tts_voice, config.voices_dir)
+    speaker = Speaker(voice_path)
+    transcriber = Transcriber(config.stt_model, language=config.language)
+    session = VoiceSession(agent, transcriber, speaker)
+    await session.run()
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="friday", description="FRIDAY personal assistant")
     parser.add_argument("prompt", nargs="*", help="one-shot prompt (omit for interactive mode)")
     parser.add_argument("--config", help="path to friday.toml")
     parser.add_argument("--model", help="override the model for this session")
+    parser.add_argument("--voice", action="store_true", help="voice mode (push-to-talk)")
+    parser.add_argument("--doctor", action="store_true", help="self-test the voice stack")
     parser.add_argument("--version", action="version", version=f"friday {__version__}")
     args = parser.parse_args()
     try:

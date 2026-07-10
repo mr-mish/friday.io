@@ -20,5 +20,17 @@ denied_paths = []
 # Extra instructions appended to FRIDAY's system prompt.
 system_prompt_extra = ""
 
-# Where FRIDAY keeps its audit log and (later) memory. Default shown.
+# Where FRIDAY keeps its audit log, voice models, and (later) memory.
 # data_dir = "~/.local/share/friday"
+
+[voice]
+# Speech-to-text model size: tiny / base / small / medium (faster-whisper).
+# Bigger = more accurate, slower. Downloaded on first use.
+stt_model = "base"
+
+# Piper voice for FRIDAY's speech. Browse voices at
+# https://rhasspy.github.io/piper-samples/  Downloaded on first use.
+tts_voice = "en_US-lessac-medium"
+
+# Force a spoken language (e.g. "en"); omit for auto-detect.
+# language = "en"
