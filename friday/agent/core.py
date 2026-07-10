@@ -35,10 +35,10 @@ from friday.fs.audit import AuditLog
 from friday.fs.permissions import Decision, PermissionGate, Verdict
 
 # What the user hears/reads is produced from these event tuples so that the
-# CLI and (later) the voice pipeline can render the same stream differently.
-AgentEvent = tuple[str, str]  # (kind, payload) — kind: "text" | "tool" | "done"
+# CLI and the voice pipeline can render the same stream differently.
+type AgentEvent = tuple[str, str]  # (kind, payload) — kind: "text" | "tool" | "done"
 
-ConfirmFn = Callable[[str, dict, Decision], Awaitable[bool]]
+type ConfirmFn = Callable[[str, dict, Decision], Awaitable[bool]]
 
 FRIDAY_TOOLS = ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "TodoWrite"]
 

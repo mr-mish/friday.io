@@ -61,7 +61,7 @@ uv run friday --doctor   # voice self-test (TTS→STT roundtrip, timings)
 
 ## Conventions
 
-- Python 3.11+, `uv` for everything; ruff line length 100.
+- Python 3.13+ (CI also tests 3.14), `uv` for everything; ruff line length 100.
 - Tests cover the safety-critical modules (permissions, config, audit) and
   must not require the Claude CLI, network, audio hardware, or ML models —
   voice logic is tested through fakes (see tests/test_voice_session.py).

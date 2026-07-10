@@ -30,7 +30,7 @@ uv run friday                        # interactive
 uv run friday "summarize ~/Documents/taxes"
 ```
 
-Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and the Claude Code
+Requires Python 3.13+, [uv](https://docs.astral.sh/uv/), and the Claude Code
 CLI (the Agent SDK's runtime) with an authenticated Anthropic account.
 
 ### Voice
