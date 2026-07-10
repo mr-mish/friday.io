@@ -54,6 +54,12 @@ TOOL_RULES: dict[str, tuple[Tier, list[str]]] = {
     "Bash": (Tier.DANGEROUS, []),
     "WebFetch": (Tier.DANGEROUS, []),
     "WebSearch": (Tier.DANGEROUS, []),
+    # FRIDAY's own memory tools (friday/memory/tools.py): in-process, no
+    # filesystem paths — the file index already enforces the deny list.
+    "mcp__memory__remember": (Tier.WRITE, []),
+    "mcp__memory__recall": (Tier.READ, []),
+    "mcp__memory__forget": (Tier.WRITE, []),
+    "mcp__memory__search_files": (Tier.READ, []),
 }
 
 # Substrings in Bash commands that are flat-out denied rather than confirmable.
@@ -63,7 +69,7 @@ _BASH_HARD_DENY = re.compile(
 )
 
 
-def _is_under(path: Path, ancestors: list[Path]) -> bool:
+def is_under(path: Path, ancestors: list[Path]) -> bool:
     return any(path == a or a in path.parents for a in ancestors)
 
 
@@ -81,7 +87,7 @@ class PermissionGate:
 
         # The deny list wins at every tier, including over confirmation.
         for p in paths:
-            if _is_under(p, self.config.denied_paths):
+            if is_under(p, self.config.denied_paths):
                 return Decision(Verdict.DENY, tier, f"{p} is on the deny list", paths)
 
         if tool_name == "Bash":
@@ -90,7 +96,7 @@ class PermissionGate:
         if tier is Tier.DANGEROUS:
             return Decision(Verdict.CONFIRM, tier, f"{tool_name} requires confirmation", paths)
 
-        outside = [p for p in paths if not _is_under(p, self.config.granted_roots)]
+        outside = [p for p in paths if not is_under(p, self.config.granted_roots)]
         if outside:
             return Decision(
                 Verdict.CONFIRM,
@@ -115,7 +121,7 @@ class PermissionGate:
                     p = p.resolve()
                 except OSError:
                     continue
-                if _is_under(p, self.config.denied_paths):
+                if is_under(p, self.config.denied_paths):
                     return Decision(
                         Verdict.DENY, Tier.DANGEROUS, f"{p} is on the deny list"
                     )
