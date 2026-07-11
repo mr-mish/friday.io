@@ -24,12 +24,11 @@ voice = [
     "numpy>=1.26",
     "certifi>=2024.0",  # CA bundle for model downloads (see tts.download_env)
 ]
-# Hands-free extras that resolve on modern Python. openwakeword (wake word)
-# still pins tflite-runtime with no 3.13+ wheels, so install it manually:
-#   uv pip install --no-deps openwakeword && uv pip install onnxruntime tqdm scipy scikit-learn requests
 handsfree = [
     "friday[voice]",
     "speechbrain>=1.0",  # ECAPA speaker verification (pulls torch — heavy)
+    "openwakeword>=0.6",  # wake word; tflite-runtime overridden away below
+    "onnxruntime>=1.16",  # openwakeword inference backend we actually use
 ]
 
 [project.scripts]
@@ -50,6 +49,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["friday"]
+
+[tool.uv]
+# openwakeword pins tflite-runtime, which has no wheels for Python 3.13+.
+# We run it on its ONNX backend instead, so drop that requirement from
+# resolution entirely (the marker is never true).
+override-dependencies = ["tflite-runtime ; python_version < '3.13'"]
 
 [tool.ruff]
 line-length = 100

@@ -84,6 +84,11 @@ uv run friday --serve     # chat panel at http://127.0.0.1:4527
 uv sync --extra voice     # adds faster-whisper, piper, sounddevice
 uv run friday --doctor    # self-test: downloads models, TTS→STT roundtrip
 uv run friday --voice     # push-to-talk session
+
+uv sync --extra handsfree # + wake word (openwakeword) and speaker
+                          #   verification (speechbrain; pulls torch)
+uv run friday --enroll-voice   # optional: teach FRIDAY your voice
+uv run friday --handsfree      # "Hey Jarvis…" — no keyboard
 ```
 
 Speech recognition and synthesis run entirely on your machine; raw audio
