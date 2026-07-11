@@ -28,7 +28,9 @@ class WakeWordDetector:
     """Feed 16 kHz int16 frames; detect() fires once per activation."""
 
     def __init__(self, model: str = "hey_jarvis", threshold: float = 0.6):
-        import openwakeword
+        # Explicit submodule import: some openwakeword versions don't bind
+        # `utils` on the package from a bare `import openwakeword`.
+        import openwakeword.utils
         from openwakeword.model import Model
 
         try:
