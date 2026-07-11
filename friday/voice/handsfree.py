@@ -16,6 +16,7 @@ Phase 7 safety in this mode:
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import secrets
 
@@ -59,27 +60,41 @@ class HandsFreeSession(VoiceSession):
 
     async def _pump(self) -> None:
         listening = False
+        debug = bool(os.environ.get("FRIDAY_VOICE_DEBUG"))
+        frame_count = 0
         while True:
             frame = await asyncio.to_thread(self.frames.next)
             if frame is None:  # end of stream (only fakes/tests ever end)
                 await self._utterances.put(None)
                 return
+            frame_count += 1
             if self.player.active:
                 # echo guard: never transcribe FRIDAY's own voice; the wake
                 # word (or an active confirm exchange) barges in.
                 if self.wake.detect(frame):
                     self.player.interrupt()
+                    print("⏺ (barge-in) listening…")
                     listening = True
                     self.collector.reset()
                 continue
             if not listening and not self._awaiting_confirm:
+                # keep the VAD's noise floor tracking ambient sound so the
+                # utterance right after the wake word is classified correctly
+                if hasattr(self.collector, "calibrate"):
+                    self.collector.calibrate(frame)
                 if self.wake.detect(frame):
+                    print("⏺ listening…")
                     listening = True
                     self.collector.reset()
+                if debug and frame_count % 33 == 0:  # ~once a second
+                    rms = float((frame.astype("float64") ** 2).mean() ** 0.5)
+                    score = getattr(self.wake, "last_score", None)
+                    print(f"[voice] rms={rms:.4f} wake_score={score}")
                 continue
             utterance = self.collector.feed(frame)
             if utterance is not None:
                 listening = False
+                print("… got it, thinking")
                 await self._utterances.put(utterance)
 
     # ------------------------------------------------------------ utterance
