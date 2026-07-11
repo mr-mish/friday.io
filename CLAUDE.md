@@ -82,9 +82,10 @@ uv run friday --serve             # web chat panel at http://127.0.0.1:4527
   recorder/player/engines so tests run with fakes; `audio.py` is the only
   module that touches PortAudio. `doctor.py` = `friday --doctor` self-test.
   `handsfree.py` (Phase 6/7) subclasses VoiceSession: a frame-pump task runs
-  wake word (`wakeword.py`, openwakeword — manual install on 3.13+, see its
-  hint) + VAD (`vad.py`, dependency-free energy VAD behind an `is_speech`
-  callable) and emits utterances to a queue; spoken confirmation requires
+  wake word (`wakeword.py`, openwakeword — installable on 3.13+ only because
+  pyproject's [tool.uv] override-dependencies drops its dead tflite-runtime
+  pin; keep that override) + VAD (`vad.py`, dependency-free energy VAD behind
+  an `is_speech` callable) and emits utterances to a queue; spoken confirmation requires
   echoing a one-time challenge word; `verify.py` (speechbrain ECAPA — do NOT
   swap in resemblyzer, its librosa/numba pins can't install on 3.13+) gates
   by enrolled speaker. Echo guard: frames during playback only feed the wake

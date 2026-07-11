@@ -8,11 +8,8 @@ so tests and the hands-free session never care what's behind it.
 from __future__ import annotations
 
 WAKEWORD_INSTALL_HINT = (
-    "Hands-free mode needs openWakeWord, which can't be a declared dependency\n"
-    "on Python 3.13+ (its tflite-runtime pin has no wheels there). Install the\n"
-    "ONNX path manually:\n"
-    "  uv pip install --no-deps openwakeword\n"
-    "  uv pip install onnxruntime tqdm scipy scikit-learn requests"
+    "Hands-free mode needs the wake-word dependencies.\n"
+    "Install them with:  uv sync --extra handsfree"
 )
 
 
