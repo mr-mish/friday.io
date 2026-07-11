@@ -228,6 +228,19 @@ async def _run_voice(agent: FridayAgent, config) -> int:
     return 0
 
 
+def _build_wake(config):
+    """The wake detector the hands-free session (and --listen-test) will use."""
+    from friday.voice.stt import Transcriber
+    from friday.voice.wakeword import SttWakeDetector, WakeWordDetector
+
+    if config.wake_engine == "openwakeword":
+        return WakeWordDetector(config.wake_word, threshold=config.wake_threshold)
+    return SttWakeDetector(
+        Transcriber(config.wake_stt_model, language=config.language or "en"),
+        phrase=config.wake_phrase,
+    )
+
+
 async def _listen_test(config) -> int:
     """Record 5 s from the hands-free mic pipeline, then report what the
     STT hears vs. what the wake model scores — splits audio-path problems
@@ -239,7 +252,6 @@ async def _listen_test(config) -> int:
 
     from friday.voice.audio import FrameStream
     from friday.voice.stt import SAMPLE_RATE, Transcriber
-    from friday.voice.wakeword import WakeWordDetector
 
     print("Recording 5 seconds — say: 'Hey Jarvis, what's the weather?'")
     frames = FrameStream()
@@ -265,14 +277,14 @@ async def _listen_test(config) -> int:
     transcript = Transcriber(config.stt_model, language=config.language).transcribe(audio)
     print(f"stt heard: {transcript!r}")
 
-    print("scoring with the wake model…")
-    detector = WakeWordDetector(config.wake_word, threshold=config.wake_threshold)
+    print(f"scoring with the wake engine ({config.wake_engine})…")
+    detector = _build_wake(config)
     peak = 0.0
     fired = False
     for frame in collected:
         fired = detector.detect(frame) or fired
         peak = max(peak, detector.last_score)
-    print(f"wake     : peak_score={peak:.6f} fired={fired} (threshold {config.wake_threshold})")
+    print(f"wake     : peak_score={peak:.6f} fired={fired}")
     if transcript and peak < 0.01:
         print("=> STT hears you but the wake model does not: wake-model-side problem.")
     elif not transcript:
@@ -287,7 +299,7 @@ async def _run_handsfree(config) -> int:
     if not voice_available():
         print(f"{YELLOW}{VOICE_INSTALL_HINT}{RESET}")
         return 1
-    if not wakeword_available():
+    if config.wake_engine == "openwakeword" and not wakeword_available():
         print(f"{YELLOW}{WAKEWORD_INSTALL_HINT}{RESET}")
         return 1
 
@@ -298,7 +310,6 @@ async def _run_handsfree(config) -> int:
     from friday.voice.tts import Speaker, ensure_voice
     from friday.voice.vad import EnergyVAD, UtteranceCollector
     from friday.voice.verify import SpeakerVerifier, verifier_available
-    from friday.voice.wakeword import WakeWordDetector
 
     verifier = None
     if config.verify_speaker:
@@ -313,6 +324,10 @@ async def _run_handsfree(config) -> int:
     print(f"{DIM}Loading models…{RESET}")
     speaker = Speaker(ensure_voice(config.tts_voice, config.voices_dir))
     transcriber = Transcriber(config.stt_model, language=config.language)
+    wake = _build_wake(config)
+    if config.wake_engine == "stt":
+        engine = f'whisper-{config.wake_stt_model}, phrase "{config.wake_phrase}"'
+        print(f"{DIM}Wake engine: {engine}{RESET}")
 
     holder: dict = {}
 
@@ -331,7 +346,7 @@ async def _run_handsfree(config) -> int:
             speaker=speaker,
             frames=frames,
             player=Player(speaker.sample_rate),
-            wake=WakeWordDetector(config.wake_word, threshold=config.wake_threshold),
+            wake=wake,
             collector=UtteranceCollector(EnergyVAD().is_speech),
             verifier=verifier,
             undo=UndoJournal(config.data_dir),

@@ -75,8 +75,11 @@ class FridayConfig:
     quiet_hours: str = ""  # e.g. "22:00-08:00": no spoken announcements
     triggers: dict[str, dict] = field(default_factory=dict)  # name -> {pattern, prompt}
     # hands-free voice
-    wake_word: str = "hey_jarvis"  # openWakeWord model name
-    wake_threshold: float = 0.5  # detection score floor (lower = more sensitive)
+    wake_engine: str = "stt"  # "stt" (whisper text match) or "openwakeword"
+    wake_word: str = "hey_jarvis"  # openWakeWord model name (openwakeword engine)
+    wake_phrase: str = "hey jarvis"  # phrase to match (stt engine)
+    wake_stt_model: str = "tiny"  # small whisper model for the stt wake engine
+    wake_threshold: float = 0.5  # openwakeword score floor (lower = more sensitive)
     verify_speaker: bool = False  # require enrolled voice for commands
     verify_threshold: float = 0.5  # ECAPA cosine floor (same speaker ≈ 0.5-0.8)
 
@@ -155,7 +158,12 @@ def load_config(path: Path | None = None) -> FridayConfig:
     for name, trig in raw.get("triggers", {}).items():
         config.triggers[name] = {"pattern": trig["pattern"], "prompt": trig["prompt"]}
 
+    config.wake_engine = voice.get("wake_engine", config.wake_engine)
+    if config.wake_engine not in ("stt", "openwakeword"):
+        raise ValueError("voice.wake_engine must be 'stt' or 'openwakeword'")
     config.wake_word = voice.get("wake_word", config.wake_word)
+    config.wake_phrase = voice.get("wake_phrase", config.wake_phrase)
+    config.wake_stt_model = voice.get("wake_stt_model", config.wake_stt_model)
     config.wake_threshold = float(voice.get("wake_threshold", config.wake_threshold))
     config.verify_speaker = bool(voice.get("verify_speaker", False))
     config.verify_threshold = float(voice.get("verify_threshold", 0.75))
