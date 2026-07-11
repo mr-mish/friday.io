@@ -77,7 +77,7 @@ class FridayConfig:
     # hands-free voice
     wake_word: str = "hey_jarvis"  # openWakeWord model name
     verify_speaker: bool = False  # require enrolled voice for commands
-    verify_threshold: float = 0.75  # cosine similarity floor
+    verify_threshold: float = 0.5  # ECAPA cosine floor (same speaker ≈ 0.5-0.8)
 
     @property
     def audit_log_path(self) -> Path:

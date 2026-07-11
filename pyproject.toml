@@ -29,7 +29,7 @@ voice = [
 #   uv pip install --no-deps openwakeword && uv pip install onnxruntime tqdm scipy scikit-learn requests
 handsfree = [
     "friday[voice]",
-    "resemblyzer>=0.1.4",  # speaker verification (pulls torch — heavy)
+    "speechbrain>=1.0",  # ECAPA speaker verification (pulls torch — heavy)
 ]
 
 [project.scripts]
