@@ -28,10 +28,17 @@ class WakeWordDetector:
     """Feed 16 kHz int16 frames; detect() fires once per activation."""
 
     def __init__(self, model: str = "hey_jarvis", threshold: float = 0.6):
-        import numpy as np  # noqa: F401
+        import openwakeword
         from openwakeword.model import Model
 
-        self._model = Model(wakeword_models=[model], inference_framework="onnx")
+        try:
+            self._model = Model(wakeword_models=[model], inference_framework="onnx")
+        except Exception:
+            # The pip package ships without model files; fetch them once
+            # (wake-word models + melspec/embedding feature models).
+            print("Downloading wake-word models (first run)…")
+            openwakeword.utils.download_models()
+            self._model = Model(wakeword_models=[model], inference_framework="onnx")
         self._name = model
         self.threshold = threshold
         self._cooldown = 0
