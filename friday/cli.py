@@ -276,7 +276,7 @@ async def _run_handsfree(config) -> int:
             speaker=speaker,
             frames=frames,
             player=Player(speaker.sample_rate),
-            wake=WakeWordDetector(config.wake_word),
+            wake=WakeWordDetector(config.wake_word, threshold=config.wake_threshold),
             collector=UtteranceCollector(EnergyVAD().is_speech),
             verifier=verifier,
             undo=UndoJournal(config.data_dir),
