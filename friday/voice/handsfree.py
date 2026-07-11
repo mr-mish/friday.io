@@ -62,6 +62,8 @@ class HandsFreeSession(VoiceSession):
         listening = False
         debug = bool(os.environ.get("FRIDAY_VOICE_DEBUG"))
         frame_count = 0
+        peak_score = 0.0
+        peak_rms = 0.0
         while True:
             frame = await asyncio.to_thread(self.frames.next)
             if frame is None:  # end of stream (only fakes/tests ever end)
@@ -86,10 +88,14 @@ class HandsFreeSession(VoiceSession):
                     print("⏺ listening…")
                     listening = True
                     self.collector.reset()
-                if debug and frame_count % 33 == 0:  # ~once a second
+                if debug:
                     rms = float((frame.astype("float64") ** 2).mean() ** 0.5)
-                    score = getattr(self.wake, "last_score", None)
-                    print(f"[voice] rms={rms:.4f} wake_score={score}")
+                    peak_rms = max(peak_rms, rms)
+                    peak_score = max(peak_score, getattr(self.wake, "last_score", 0.0) or 0.0)
+                    if frame_count % 33 == 0:  # report the last second's PEAKS
+                        print(f"[voice] peak_rms={peak_rms:.4f} peak_wake_score={peak_score:.4f}")
+                        peak_score = 0.0
+                        peak_rms = 0.0
                 continue
             utterance = self.collector.feed(frame)
             if utterance is not None:

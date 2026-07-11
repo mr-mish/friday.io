@@ -49,24 +49,33 @@ class WakeWordDetector:
             self._model = Model(wakeword_models=[model], inference_framework="onnx")
         self.threshold = threshold
         self.last_score = 0.0
-        self._buffer = np.zeros(0, dtype=np.int16)
+        self._buffer = np.zeros(0, dtype=np.float32)
         self._cooldown = 0
+
+    # Quiet laptop mics deliver speech far below the level the models were
+    # trained on; boost soft blocks toward this RMS (bounded gain).
+    AGC_TARGET_RMS = 0.08
+    AGC_MAX_GAIN = 25.0
 
     def detect(self, frame) -> bool:
         import numpy as np
 
-        if frame.dtype != np.int16:
-            frame = (np.clip(frame, -1.0, 1.0) * 32767).astype(np.int16)
+        if frame.dtype == np.int16:
+            frame = frame.astype(np.float32) / 32767.0
         self._buffer = np.concatenate([self._buffer, frame])
         fired = False
         # Feed the model exactly the block size it was trained for; smaller
         # chunks silently degrade its feature pipeline.
         while len(self._buffer) >= BLOCK_SAMPLES:
             block, self._buffer = self._buffer[:BLOCK_SAMPLES], self._buffer[BLOCK_SAMPLES:]
-            scores = self._model.predict(block)
+            rms = float(np.sqrt(np.mean(np.square(block))))
+            if 0.001 < rms < self.AGC_TARGET_RMS:
+                block = block * min(self.AGC_TARGET_RMS / rms, self.AGC_MAX_GAIN)
+            ints = (np.clip(block, -1.0, 1.0) * 32767).astype(np.int16)
+            scores = self._model.predict(ints)
             # Keys are model *file* stems (e.g. "hey_jarvis_v0.1"), not the
             # requested name — with one model loaded, take the max.
-            self.last_score = max(scores.values()) if scores else 0.0
+            self.last_score = float(max(scores.values())) if scores else 0.0
             if self._cooldown > 0:  # don't re-trigger on the same phrase
                 self._cooldown -= 1
                 continue
