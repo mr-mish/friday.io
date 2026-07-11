@@ -8,14 +8,19 @@ so tests and the hands-free session never care what's behind it.
 from __future__ import annotations
 
 WAKEWORD_INSTALL_HINT = (
-    "Hands-free mode needs the wake-word dependencies.\n"
-    "Install them with:  uv sync --extra handsfree"
+    "Hands-free mode needs the wake-word dependencies (missing or broken\n"
+    "openwakeword install). Rebuild the environment with:\n"
+    "  rm -rf .venv && uv sync --extra handsfree"
 )
 
 
 def wakeword_available() -> bool:
+    # Check the exact modules the detector uses: a mangled install (e.g.
+    # leftovers from a manual pip install later pruned by `uv sync`) can
+    # have an importable `openwakeword` with missing submodules.
     try:
-        import openwakeword  # noqa: F401
+        import openwakeword.utils  # noqa: F401
+        from openwakeword.model import Model  # noqa: F401
     except ImportError:
         return False
     return True
