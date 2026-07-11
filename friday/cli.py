@@ -173,6 +173,9 @@ async def _main(args: argparse.Namespace) -> int:
     if args.enroll_voice:
         return _enroll_voice(config)
 
+    if args.listen_test:
+        return await _listen_test(config)
+
     if args.handsfree:
         return await _run_handsfree(config)
 
@@ -222,6 +225,58 @@ async def _run_voice(agent: FridayAgent, config) -> int:
     transcriber = Transcriber(config.stt_model, language=config.language)
     session = VoiceSession(agent, transcriber, speaker)
     await session.run()
+    return 0
+
+
+async def _listen_test(config) -> int:
+    """Record 5 s from the hands-free mic pipeline, then report what the
+    STT hears vs. what the wake model scores — splits audio-path problems
+    from wake-model problems in one run."""
+    import asyncio as aio
+    import wave
+
+    import numpy as np
+
+    from friday.voice.audio import FrameStream
+    from friday.voice.stt import SAMPLE_RATE, Transcriber
+    from friday.voice.wakeword import WakeWordDetector
+
+    print("Recording 5 seconds — say: 'Hey Jarvis, what's the weather?'")
+    frames = FrameStream()
+    frames.start()
+    collected = []
+    for _ in range(167):  # ~5s of 30ms frames
+        collected.append(await aio.to_thread(frames.next))
+    frames.stop()
+    audio = np.concatenate(collected)
+
+    wav_path = config.data_dir / "listen_test.wav"
+    wav_path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(wav_path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(SAMPLE_RATE)
+        wav.writeframes((np.clip(audio, -1, 1) * 32767).astype(np.int16).tobytes())
+
+    rms = float(np.sqrt(np.mean(np.square(audio))))
+    print(f"rms      : {rms:.4f}  (saved to {wav_path})")
+
+    print("transcribing what was heard…")
+    transcript = Transcriber(config.stt_model, language=config.language).transcribe(audio)
+    print(f"stt heard: {transcript!r}")
+
+    print("scoring with the wake model…")
+    detector = WakeWordDetector(config.wake_word, threshold=config.wake_threshold)
+    peak = 0.0
+    fired = False
+    for frame in collected:
+        fired = detector.detect(frame) or fired
+        peak = max(peak, detector.last_score)
+    print(f"wake     : peak_score={peak:.6f} fired={fired} (threshold {config.wake_threshold})")
+    if transcript and peak < 0.01:
+        print("=> STT hears you but the wake model does not: wake-model-side problem.")
+    elif not transcript:
+        print("=> STT heard nothing either: audio-path problem (device/levels).")
     return 0
 
 
@@ -320,6 +375,9 @@ def main() -> None:
     parser.add_argument("--voice", action="store_true", help="voice mode (push-to-talk)")
     parser.add_argument("--handsfree", action="store_true", help="always-on voice (wake word)")
     parser.add_argument("--enroll-voice", action="store_true", help="enroll your voice profile")
+    parser.add_argument(
+        "--listen-test", action="store_true", help="5s mic test: STT vs wake-model diagnosis"
+    )
     parser.add_argument("--doctor", action="store_true", help="self-test the voice stack")
     parser.add_argument("--remember", metavar="FACT", help="store a long-term memory and exit")
     parser.add_argument("--memories", action="store_true", help="list stored memories and exit")
