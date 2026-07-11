@@ -85,8 +85,9 @@ uv run friday --serve             # web chat panel at http://127.0.0.1:4527
   wake word (`wakeword.py`, openwakeword — manual install on 3.13+, see its
   hint) + VAD (`vad.py`, dependency-free energy VAD behind an `is_speech`
   callable) and emits utterances to a queue; spoken confirmation requires
-  echoing a one-time challenge word; `verify.py` (resemblyzer) gates by
-  enrolled speaker. Echo guard: frames during playback only feed the wake
+  echoing a one-time challenge word; `verify.py` (speechbrain ECAPA — do NOT
+  swap in resemblyzer, its librosa/numba pins can't install on 3.13+) gates
+  by enrolled speaker. Echo guard: frames during playback only feed the wake
   detector (barge-in), never the transcriber.
 - `friday/autonomy/` — Phase 8/9. `schedule.py` (SQLite store; spec grammar
   every:30m / daily:HH:MM / weekly:day:HH:MM; 3 consecutive failures =
