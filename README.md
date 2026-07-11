@@ -7,9 +7,25 @@ audit for everything else.
 
 See [docs/PLAN.md](docs/PLAN.md) for the architecture and roadmap.
 
-## Status: Phase 5 (desktop panel)
+## Status: Phase 9 (autonomous + hands-free)
 
 Working today:
+
+- **Autonomy** — tell FRIDAY "every Friday at five, summarize my week" and it
+  schedules itself; file triggers react to changes in watched folders. Runs
+  happen unattended in the `--serve` daemon (or via `friday --run-due` from
+  cron) under a hard rule: anything needing confirmation is declined and
+  reported to your inbox (`friday --inbox`) — autonomous FRIDAY never
+  self-approves. Failing schedules disable themselves after 3 strikes.
+- **Hands-free voice** (`friday --handsfree`) — say the wake word, speak,
+  FRIDAY answers; no keyboard. VAD detects when you've finished talking, an
+  echo guard keeps FRIDAY from hearing itself, and the wake word barges in.
+- **Voice trust** — optional speaker verification (`friday --enroll-voice`)
+  so only your voice is obeyed; dangerous actions require echoing a one-time
+  challenge phrase ("confirm tango"), and "undo that" reverts the last change.
+- **Self-maintenance** — background index refresh and weekly memory
+  consolidation run as built-in schedules; `friday --doctor` reports the
+  health of the whole stack.
 
 - **Web chat panel** (`friday --serve`) — a localhost daemon (FastAPI +
   WebSocket) serving a streaming chat UI. Permission prompts appear as

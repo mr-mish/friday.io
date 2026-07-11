@@ -24,6 +24,13 @@ voice = [
     "numpy>=1.26",
     "certifi>=2024.0",  # CA bundle for model downloads (see tts.download_env)
 ]
+# Hands-free extras that resolve on modern Python. openwakeword (wake word)
+# still pins tflite-runtime with no 3.13+ wheels, so install it manually:
+#   uv pip install --no-deps openwakeword && uv pip install onnxruntime tqdm scipy scikit-learn requests
+handsfree = [
+    "friday[voice]",
+    "resemblyzer>=0.1.4",  # speaker verification (pulls torch — heavy)
+]
 
 [project.scripts]
 friday = "friday.cli:main"

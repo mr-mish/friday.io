@@ -7,11 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 FRIDAY is a local-first personal AI assistant (voice + text) with safe
 filesystem powers, built on the Claude Agent SDK. The architecture and phased
 roadmap live in `docs/PLAN.md` — read it before making structural changes.
-Currently at Phase 5: text REPL, push-to-talk voice (local Whisper STT,
-local Piper TTS, sentence-streamed playback), long-term memory, a full-text
-index over granted folders, config-driven MCP skills, named tasks
-(`--run-task`, scheduled externally via cron/launchd), and a localhost
-daemon + web chat panel (`--serve`).
+Currently at Phase 9: text REPL, voice (push-to-talk and hands-free wake
+word with VAD turn-taking), speaker verification + spoken challenge
+confirmations, long-term memory, a full-text index over granted folders,
+config-driven MCP skills, named tasks, a localhost daemon + web chat panel
+(`--serve`) that also runs the autonomy loop (schedules, file triggers,
+inbox, self-maintenance).
 
 ## Commands
 
@@ -28,6 +29,8 @@ uv run friday --doctor   # voice self-test (TTS→STT roundtrip, timings)
 uv run friday --remember "fact"   # store a memory; --memories lists, --forget ID deletes
 uv run friday --tasks             # list named tasks; --run-task NAME runs one
 uv run friday --undo              # revert FRIDAY's last file change; --history lists
+uv run friday --handsfree         # wake-word voice mode; --enroll-voice enrolls speaker
+uv run friday --schedules         # autonomy: list; --inbox reads results; --run-due for cron
 uv sync --extra server            # daemon deps (fastapi, uvicorn, websockets)
 uv run friday --serve             # web chat panel at http://127.0.0.1:4527
 ```
@@ -78,6 +81,23 @@ uv run friday --serve             # web chat panel at http://127.0.0.1:4527
   `session.VoiceSession` is the push-to-talk loop and takes injectable
   recorder/player/engines so tests run with fakes; `audio.py` is the only
   module that touches PortAudio. `doctor.py` = `friday --doctor` self-test.
+  `handsfree.py` (Phase 6/7) subclasses VoiceSession: a frame-pump task runs
+  wake word (`wakeword.py`, openwakeword — manual install on 3.13+, see its
+  hint) + VAD (`vad.py`, dependency-free energy VAD behind an `is_speech`
+  callable) and emits utterances to a queue; spoken confirmation requires
+  echoing a one-time challenge word; `verify.py` (resemblyzer) gates by
+  enrolled speaker. Echo guard: frames during playback only feed the wake
+  detector (barge-in), never the transcriber.
+- `friday/autonomy/` — Phase 8/9. `schedule.py` (SQLite store; spec grammar
+  every:30m / daily:HH:MM / weekly:day:HH:MM; 3 consecutive failures =
+  auto-disable), `runner.py` (isolated agent session per run, confirm
+  auto-DENIED and recorded — unattended runs never self-approve; per-run
+  budget), `notify.py` (inbox + quiet_hours), `watcher.py` (mtime-poll file
+  triggers, deny-list-aware, priming poll never fires), `loop.py` (tick =
+  due schedules + triggers; "@refresh_index"/"@consolidate_memories"
+  maintenance built-ins), `tools.py` (schedule_task/list/cancel/check_inbox
+  exposed to the agent). The daemon runs the loop; `--run-due` is the cron
+  fallback.
 
 ## Critical invariants
 
@@ -91,6 +111,12 @@ uv run friday --serve             # web chat panel at http://127.0.0.1:4527
   (CLI) or no/lost WebSocket client within 120 s (daemon) → declined.
 - `DEFAULT_DENIED` in config.py protects credential stores; additions welcome,
   removals are not.
+- Autonomous runs (schedules/triggers) must never self-approve: their confirm
+  callback records and returns False, and the declined actions are reported
+  to the inbox. Don't route them through an interactive confirm.
+- Spoken confirmation must stay challenge-phrase based (a specific one-time
+  word), never a bare "yes" — and when verify_speaker is on, only the
+  enrolled voice can approve.
 
 ## Conventions
 

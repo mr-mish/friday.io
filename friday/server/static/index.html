@@ -167,6 +167,8 @@
         document.getElementById("confDetail").textContent = msg.detail || "(no detail)";
         document.getElementById("confReason").textContent = msg.reason;
         confirmDlg.showModal();
+      } else if (msg.type === "notice") {
+        el("tool", "🔔 " + msg.message);
       } else if (msg.type === "error") {
         el("msg friday", "⚠ " + msg.message); fridayEl = null; setBusy(false);
       }

@@ -38,6 +38,34 @@ tts_voice = "en_US-lessac-medium"
 # Force a spoken language (e.g. "en"); omit for auto-detect.
 # language = "en"
 
+# Hands-free mode (friday --handsfree): openWakeWord model name.
+# wake_word = "hey_jarvis"
+
+# Only obey an enrolled voice (friday --enroll-voice; needs the handsfree
+# extra). Applies to commands and spoken confirmations.
+# verify_speaker = true
+# verify_threshold = 0.75
+
+[autonomy]
+# The --serve daemon runs schedules and file triggers on this cadence.
+enabled = true
+poll_seconds = 30
+
+# Hard spend cap per autonomous run.
+budget_usd = 1.0
+
+# No spoken announcements in this window (inbox still collects everything).
+# quiet_hours = "22:00-08:00"
+
+# ---------------------------------------------------------------------------
+# Triggers: react to file changes in granted folders. {files} expands to the
+# changed paths.
+# ---------------------------------------------------------------------------
+
+# [triggers.inbox_sort]
+# pattern = "~/Documents/Inbox/*"
+# prompt = "New files arrived: {files}. Rename them by date and topic."
+
 # ---------------------------------------------------------------------------
 # Skills: every [skills.NAME] section plugs one MCP server into FRIDAY.
 # trust = "confirm" (default) asks before every call; "allow" auto-approves —
