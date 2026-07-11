@@ -59,6 +59,12 @@ class UtteranceCollector:
         self._trailing_silence = 0
         self._started = False
 
+    def calibrate(self, frame) -> None:
+        """Feed an idle-time frame so the VAD keeps tracking the ambient
+        noise floor. Without this, the first frame after the wake word —
+        the user's ongoing speech — would define 'background noise'."""
+        self._is_speech(frame)
+
     def feed(self, frame):
         """Feed one frame; returns the full utterance (numpy array) when the
         speaker has finished, else None."""
