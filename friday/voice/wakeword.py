@@ -1,11 +1,19 @@
-"""Wake-word detection ("Hey Jarvis" / "Hey Friday") via openWakeWord.
+"""Wake-word detection: "Hey Jarvis" → FRIDAY starts listening.
 
-Optional heavy dependency (`uv sync --extra handsfree`); models download on
-first use. The detector interface is one method — `detect(frame) -> bool` —
-so tests and the hands-free session never care what's behind it.
+Two engines behind the same one-method interface (`detect(frame) -> bool`):
+
+- "stt" (default): transcribe short rolling windows with a small Whisper
+  model and match the wake phrase in text. Heavier per activation but built
+  on the same STT stack the rest of voice mode already proves works — a
+  silence gate keeps it idle-cheap.
+- "openwakeword": the classic dedicated detector. Lighter on CPU but the
+  library is unmaintained and its models misbehave on some setups; opt in
+  with voice.wake_engine = "openwakeword".
 """
 
 from __future__ import annotations
+
+import re
 
 WAKEWORD_INSTALL_HINT = (
     "Hands-free mode needs the wake-word dependencies (missing or broken\n"
@@ -24,6 +32,63 @@ def wakeword_available() -> bool:
     except ImportError:
         return False
     return True
+
+
+class SttWakeDetector:
+    """Wake detection by transcribing rolling audio windows.
+
+    Feed 16 kHz float32 frames; roughly once per second (and only when the
+    window isn't silence) the last ~2.5 s are transcribed and matched
+    against the wake phrase.
+    """
+
+    WINDOW_S = 2.5
+    CHECK_INTERVAL_S = 1.0
+    COOLDOWN_S = 3.0
+    SILENCE_RMS = 0.004  # below this, skip transcription entirely
+
+    def __init__(self, transcriber, phrase: str = "hey jarvis", sample_rate: int = 16_000):
+        self.transcriber = transcriber
+        self.phrase = re.sub(r"[^a-z ]", "", phrase.lower()).strip()
+        self.sample_rate = sample_rate
+        self.last_score = 0.0
+        self._frames: list = []
+        self._buffered = 0
+        self._since_check = 0
+        self._cooldown = 0
+
+    def detect(self, frame) -> bool:
+        import numpy as np
+
+        if frame.dtype == np.int16:
+            frame = frame.astype(np.float32) / 32767.0
+        self._frames.append(frame)
+        self._buffered += len(frame)
+        while self._buffered > self.WINDOW_S * self.sample_rate and len(self._frames) > 1:
+            self._buffered -= len(self._frames.pop(0))
+
+        if self._cooldown > 0:
+            self._cooldown -= len(frame)
+            return False
+        self._since_check += len(frame)
+        if self._since_check < self.CHECK_INTERVAL_S * self.sample_rate:
+            return False
+        self._since_check = 0
+
+        audio = np.concatenate(self._frames)
+        if float(np.sqrt(np.mean(np.square(audio)))) < self.SILENCE_RMS:
+            self.last_score = 0.0
+            return False
+        text = re.sub(r"[^a-z ]", "", self.transcriber.transcribe(audio).lower())
+        # full phrase, or its distinctive last word ("jarvis") on its own
+        hit = self.phrase in text or self.phrase.split()[-1] in text
+        self.last_score = 1.0 if hit else 0.0
+        if hit:
+            self._cooldown = int(self.COOLDOWN_S * self.sample_rate)
+            self._frames = []
+            self._buffered = 0
+            return True
+        return False
 
 
 BLOCK_SAMPLES = 1280  # openWakeWord is designed for 80 ms @ 16 kHz blocks

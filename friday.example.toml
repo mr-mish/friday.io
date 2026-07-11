@@ -38,8 +38,14 @@ tts_voice = "en_US-lessac-medium"
 # Force a spoken language (e.g. "en"); omit for auto-detect.
 # language = "en"
 
-# Hands-free mode (friday --handsfree): openWakeWord model name.
-# wake_word = "hey_jarvis"
+# Hands-free mode (friday --handsfree). The default wake engine transcribes
+# short audio windows with whisper and matches wake_phrase — reliable
+# wherever STT works. "openwakeword" is lighter on CPU but its models
+# misbehave on some machines.
+# wake_engine = "stt"          # or "openwakeword"
+# wake_phrase = "hey jarvis"   # stt engine: phrase to listen for
+# wake_stt_model = "tiny"      # stt engine: whisper size for wake detection
+# wake_word = "hey_jarvis"     # openwakeword engine: model name
 
 # Only obey an enrolled voice (friday --enroll-voice; needs the handsfree
 # extra). Applies to commands and spoken confirmations.
