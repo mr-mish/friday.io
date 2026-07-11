@@ -60,6 +60,12 @@ TOOL_RULES: dict[str, tuple[Tier, list[str]]] = {
     "mcp__memory__recall": (Tier.READ, []),
     "mcp__memory__forget": (Tier.WRITE, []),
     "mcp__memory__search_files": (Tier.READ, []),
+    # Built-in autonomy tools: schedules always execute under the
+    # auto-deny-confirms policy, so creating them is bounded-risk.
+    "mcp__autonomy__schedule_task": (Tier.WRITE, []),
+    "mcp__autonomy__list_schedules": (Tier.READ, []),
+    "mcp__autonomy__cancel_schedule": (Tier.WRITE, []),
+    "mcp__autonomy__check_inbox": (Tier.READ, []),
 }
 
 # Substrings in Bash commands that are flat-out denied rather than confirmable.

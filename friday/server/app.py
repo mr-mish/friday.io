@@ -20,6 +20,7 @@ a 120 s timeout all count as "declined" — same rule as the CLI.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
 from collections.abc import Callable
@@ -36,6 +37,31 @@ from friday.fs.permissions import Decision
 
 CONFIRM_TIMEOUT_S = 120
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+async def _autonomy_forever(app: FastAPI, config: FridayConfig, session: ChatSession) -> None:
+    """Schedules + triggers, forever, inside the daemon (Phase 8/9)."""
+    from friday.autonomy.loop import AutonomyLoop, register_maintenance
+    from friday.autonomy.watcher import FileWatcher, TriggerRule
+
+    agent = app.state.agent
+    register_maintenance(agent.schedules)
+    watcher = FileWatcher(
+        config.granted_roots,
+        config.denied_paths,
+        [TriggerRule(n, t["pattern"], t["prompt"]) for n, t in config.triggers.items()],
+    )
+
+    async def notify_client(message: str) -> None:
+        await session.send({"type": "notice", "message": message})
+
+    loop = AutonomyLoop(
+        config, agent.schedules, agent.inbox, watcher, agent.index, notify_client
+    )
+    while True:
+        with contextlib.suppress(Exception):  # a bad tick must never kill the daemon
+            await loop.tick()
+        await asyncio.sleep(config.poll_seconds)
 
 
 class ChatSession:
@@ -111,9 +137,14 @@ def create_app(
     async def lifespan(app: FastAPI):
         app.state.agent = agent_factory(session.confirm)
         await app.state.agent.__aenter__()
+        autonomy_task = None
+        if config.autonomy_enabled:
+            autonomy_task = asyncio.create_task(_autonomy_forever(app, config, session))
         try:
             yield
         finally:
+            if autonomy_task is not None:
+                autonomy_task.cancel()
             await app.state.agent.__aexit__(None, None, None)
 
     app = FastAPI(title="FRIDAY", version=__version__, lifespan=lifespan)
@@ -140,6 +171,14 @@ def create_app(
         items = store.recent() if store else []
         return JSONResponse(
             [{"id": m.id, "fact": m.fact, "created": m.created} for m in items]
+        )
+
+    @app.get("/api/inbox")
+    async def inbox_endpoint() -> JSONResponse:
+        inbox = getattr(app.state.agent, "inbox", None)
+        items = inbox.unread() if inbox else []
+        return JSONResponse(
+            [{"id": n.id, "ts": n.ts, "source": n.source, "message": n.message} for n in items]
         )
 
     @app.websocket("/ws")

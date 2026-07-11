@@ -30,6 +30,9 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
+from friday.autonomy.notify import Inbox
+from friday.autonomy.schedule import ScheduleStore
+from friday.autonomy.tools import build_autonomy_server
 from friday.config import FridayConfig
 from friday.fs.audit import AuditLog
 from friday.fs.permissions import Decision, PermissionGate, Verdict
@@ -68,6 +71,13 @@ You have long-term memory. When the user states a lasting preference or fact
 ("my accountant is Dana", "always export invoices as PDF"), store it with the
 remember tool without being asked. Use recall to look things up, forget when
 the user retracts something, and search_files to find files by their content.
+
+You can schedule recurring autonomous work: when the user asks for something
+periodic ("every Friday at five, summarize my week"), use schedule_task with
+a spec like weekly:fri:17:00, daily:07:30 or every:45m. Those runs happen
+unattended — actions needing confirmation are declined and reported to the
+user's inbox, which you can read with check_inbox when they ask what
+happened while they were away.
 {memories}"""
 
 
@@ -105,13 +115,17 @@ def _system_prompt(config: FridayConfig, store: MemoryStore) -> str:
 class FridayAgent:
     """One conversational session. Create, then ``async with`` it."""
 
-    def __init__(self, config: FridayConfig, confirm: ConfirmFn):
+    def __init__(
+        self, config: FridayConfig, confirm: ConfirmFn, budget_usd: float | None = None
+    ):
         self.config = config
         self.gate = PermissionGate(config)
         self.audit = AuditLog(config.audit_log_path)
         self.store = MemoryStore(config.db_path)
         self.index = FileIndex(config.db_path, config.granted_roots, config.denied_paths)
         self.undo = UndoJournal(config.data_dir)
+        self.schedules = ScheduleStore(config.db_path)
+        self.inbox = Inbox(config.db_path)
         self._confirm = confirm
         cwd = config.granted_roots[0] if config.granted_roots else Path.home()
         # `tools` sets what exists; `allowed_tools` would AUTO-APPROVE calls
@@ -122,10 +136,12 @@ class FridayAgent:
                 tools=FRIDAY_TOOLS,
                 mcp_servers={
                     "memory": build_memory_server(self.store, self.index),
+                    "autonomy": build_autonomy_server(self.schedules, self.inbox),
                     **_skill_servers(config),
                 },
                 model=config.model,
                 cwd=str(cwd),
+                max_budget_usd=budget_usd,
                 can_use_tool=self._can_use_tool,
                 # Policy is enforced in the PreToolUse hook, not can_use_tool:
                 # the CLI auto-approves some calls (reads in cwd, "safe" shell

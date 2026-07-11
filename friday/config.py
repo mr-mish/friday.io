@@ -68,6 +68,16 @@ class FridayConfig:
     allow_web: bool = False  # auto-approve WebSearch/WebFetch instead of confirming
     skills: dict[str, SkillConfig] = field(default_factory=dict)
     tasks: dict[str, TaskConfig] = field(default_factory=dict)
+    # autonomy
+    autonomy_enabled: bool = True  # daemon runs schedules/triggers
+    poll_seconds: int = 30  # autonomy loop cadence in the daemon
+    budget_usd: float = 1.0  # hard cap per autonomous run
+    quiet_hours: str = ""  # e.g. "22:00-08:00": no spoken announcements
+    triggers: dict[str, dict] = field(default_factory=dict)  # name -> {pattern, prompt}
+    # hands-free voice
+    wake_word: str = "hey_jarvis"  # openWakeWord model name
+    verify_speaker: bool = False  # require enrolled voice for commands
+    verify_threshold: float = 0.75  # cosine similarity floor
 
     @property
     def audit_log_path(self) -> Path:
@@ -135,4 +145,16 @@ def load_config(path: Path | None = None) -> FridayConfig:
         config.tasks[name] = TaskConfig(
             prompt=task["prompt"], description=task.get("description", "")
         )
+
+    autonomy = raw.get("autonomy", {})
+    config.autonomy_enabled = bool(autonomy.get("enabled", True))
+    config.poll_seconds = int(autonomy.get("poll_seconds", 30))
+    config.budget_usd = float(autonomy.get("budget_usd", 1.0))
+    config.quiet_hours = autonomy.get("quiet_hours", "")
+    for name, trig in raw.get("triggers", {}).items():
+        config.triggers[name] = {"pattern": trig["pattern"], "prompt": trig["prompt"]}
+
+    config.wake_word = voice.get("wake_word", config.wake_word)
+    config.verify_speaker = bool(voice.get("verify_speaker", False))
+    config.verify_threshold = float(voice.get("verify_threshold", 0.75))
     return config

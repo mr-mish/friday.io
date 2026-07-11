@@ -176,6 +176,38 @@ clipboard; scheduled/proactive tasks ("every Friday summarize my week").
 Tauri tray app: chat panel, live transcript, permission prompts as native
 dialogs, settings UI. Installer packaging.
 
+### Phase 6 — Always-on voice
+Remove the keyboard from the loop: wake word ("Hey Friday", openWakeWord),
+VAD end-of-utterance detection instead of push-to-talk, and an echo guard
+(mic muted while FRIDAY speaks; wake word barge-in).
+**Done when:** a full conversation happens without touching the keyboard.
+
+### Phase 7 — Voice trust
+Voice can't be allowed to approve dangerous actions until FRIDAY knows who
+is speaking. Speaker verification (voice-embedding enrollment + per-utterance
+check), spoken confirmations that require echoing a challenge phrase, and
+voice-addressable undo ("Friday, undo that"). The deny list stays absolute
+regardless of any voice.
+**Done when:** a stranger's "yes" does nothing and the owner's spoken
+confirmation safely gates a dangerous action.
+
+### Phase 8 — Autonomy core
+Acting unprompted: an in-daemon scheduler programmed conversationally
+("every Friday at five, summarize my week" → schedule_task tool), file-change
+triggers over granted roots, and a notifications inbox with quiet hours.
+Autonomous runs get a hard rule: anything the gate would CONFIRM is
+auto-denied and becomes an inbox message instead — unattended tasks never
+self-approve. Per-run budget caps.
+**Done when:** FRIDAY does useful work while the user is away and reports
+what it did (and what it declined to do) afterwards.
+
+### Phase 9 — Self-managing
+Maintenance schedules (background index refresh, memory consolidation), a
+failure watchdog (a schedule that errors repeatedly disables itself and
+notifies), and `--doctor` coverage for the always-on stack.
+**Done when:** FRIDAY keeps itself healthy without user babysitting and
+says so when it can't.
+
 ## 9. Repo Layout (target)
 
 ```

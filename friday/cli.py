@@ -93,6 +93,49 @@ async def _main(args: argparse.Namespace) -> int:
         await uvicorn.Server(uv_config).serve()
         return 0
 
+    if args.inbox or args.schedules:
+        from friday.autonomy.notify import Inbox
+        from friday.autonomy.schedule import ScheduleStore
+
+        if args.inbox:
+            inbox = Inbox(config.db_path)
+            notices = inbox.unread()
+            if not notices:
+                print("Inbox empty.")
+            for n in notices:
+                print(f"{BOLD}[{n.ts[:16]}] {n.source}{RESET}\n{n.message}\n")
+            inbox.mark_read([n.id for n in notices])
+        if args.schedules:
+            schedules = ScheduleStore(config.db_path).all()
+            if not schedules:
+                print("No schedules.")
+            for s in schedules:
+                state = "" if s.enabled else f"  {YELLOW}DISABLED ({s.failures} failures){RESET}"
+                print(f"{BOLD}{s.name}{RESET}  {s.spec}  next {s.next_run[:16]}{state}")
+                print(f"  {DIM}{s.prompt[:90]}{RESET}")
+        return 0
+
+    if args.run_due:
+        from friday.autonomy.loop import AutonomyLoop, register_maintenance
+        from friday.autonomy.notify import Inbox
+        from friday.autonomy.schedule import ScheduleStore
+        from friday.autonomy.watcher import FileWatcher
+        from friday.memory.index import FileIndex
+
+        store = ScheduleStore(config.db_path)
+        register_maintenance(store)
+        loop = AutonomyLoop(
+            config,
+            store,
+            Inbox(config.db_path),
+            FileWatcher(config.granted_roots, config.denied_paths, []),
+            FileIndex(config.db_path, config.granted_roots, config.denied_paths),
+        )
+        due = store.due()
+        await loop.tick()
+        print(f"Ran {len(due)} due schedule(s). See friday --inbox for results.")
+        return 0
+
     if args.undo or args.history:
         from friday.fs.undo import UndoJournal
 
@@ -126,6 +169,12 @@ async def _main(args: argparse.Namespace) -> int:
             print(f"Unknown task '{args.run_task}' (known: {known})")
             return 2
         prompt = task.prompt
+
+    if args.enroll_voice:
+        return _enroll_voice(config)
+
+    if args.handsfree:
+        return await _run_handsfree(config)
 
     async with FridayAgent(config, confirm=_confirm) as agent:
         if args.voice:
@@ -176,12 +225,101 @@ async def _run_voice(agent: FridayAgent, config) -> int:
     return 0
 
 
+async def _run_handsfree(config) -> int:
+    from friday.voice import VOICE_INSTALL_HINT, voice_available
+    from friday.voice.wakeword import WAKEWORD_INSTALL_HINT, wakeword_available
+
+    if not voice_available():
+        print(f"{YELLOW}{VOICE_INSTALL_HINT}{RESET}")
+        return 1
+    if not wakeword_available():
+        print(f"{YELLOW}{WAKEWORD_INSTALL_HINT}{RESET}")
+        return 1
+
+    from friday.fs.undo import UndoJournal
+    from friday.voice.audio import FrameStream, Player
+    from friday.voice.handsfree import HandsFreeSession
+    from friday.voice.stt import Transcriber
+    from friday.voice.tts import Speaker, ensure_voice
+    from friday.voice.vad import EnergyVAD, UtteranceCollector
+    from friday.voice.verify import SpeakerVerifier, verifier_available
+    from friday.voice.wakeword import WakeWordDetector
+
+    verifier = None
+    if config.verify_speaker:
+        if not verifier_available():
+            print(f"{YELLOW}verify_speaker is on but resemblyzer is missing — aborting.{RESET}")
+            return 1
+        verifier = SpeakerVerifier(config.data_dir, threshold=config.verify_threshold)
+        if not verifier.enrolled:
+            print(f"{YELLOW}No enrolled voice. Run: friday --enroll-voice{RESET}")
+            return 1
+
+    print(f"{DIM}Loading models…{RESET}")
+    speaker = Speaker(ensure_voice(config.tts_voice, config.voices_dir))
+    transcriber = Transcriber(config.stt_model, language=config.language)
+
+    holder: dict = {}
+
+    async def confirm(tool_name, tool_input, decision):
+        session = holder.get("session")
+        return False if session is None else await session.spoken_confirm(
+            tool_name, tool_input, decision
+        )
+
+    frames = FrameStream()
+    session_obj = None
+    async with FridayAgent(config, confirm=confirm) as agent:
+        session_obj = HandsFreeSession(
+            agent=agent,
+            transcriber=transcriber,
+            speaker=speaker,
+            frames=frames,
+            player=Player(speaker.sample_rate),
+            wake=WakeWordDetector(config.wake_word),
+            collector=UtteranceCollector(EnergyVAD().is_speech),
+            verifier=verifier,
+            undo=UndoJournal(config.data_dir),
+        )
+        holder["session"] = session_obj
+        frames.start()
+        try:
+            await session_obj.run()
+        finally:
+            frames.stop()
+    return 0
+
+
+def _enroll_voice(config) -> int:
+    from friday.voice.verify import VERIFY_INSTALL_HINT, SpeakerVerifier, verifier_available
+
+    if not verifier_available():
+        print(f"{YELLOW}{VERIFY_INSTALL_HINT}{RESET}")
+        return 1
+    from friday.voice.audio import Recorder
+
+    verifier = SpeakerVerifier(config.data_dir, threshold=config.verify_threshold)
+    recorder = Recorder()
+    samples = []
+    print("Enrolling your voice — three samples, a full sentence each.")
+    for i in range(3):
+        input(f"[{i + 1}/3] Press Enter, speak a sentence, Enter again… ")
+        recorder.start()
+        input("  (recording — Enter to finish) ")
+        samples.append(recorder.stop())
+    verifier.enroll(samples)
+    print(f"Enrolled. Profile stored at {verifier.profile_path}")
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="friday", description="FRIDAY personal assistant")
     parser.add_argument("prompt", nargs="*", help="one-shot prompt (omit for interactive mode)")
     parser.add_argument("--config", help="path to friday.toml")
     parser.add_argument("--model", help="override the model for this session")
     parser.add_argument("--voice", action="store_true", help="voice mode (push-to-talk)")
+    parser.add_argument("--handsfree", action="store_true", help="always-on voice (wake word)")
+    parser.add_argument("--enroll-voice", action="store_true", help="enroll your voice profile")
     parser.add_argument("--doctor", action="store_true", help="self-test the voice stack")
     parser.add_argument("--remember", metavar="FACT", help="store a long-term memory and exit")
     parser.add_argument("--memories", action="store_true", help="list stored memories and exit")
@@ -195,6 +333,11 @@ def main() -> None:
     parser.add_argument("--undo", action="store_true", help="revert FRIDAY's last file change")
     parser.add_argument("--history", action="store_true", help="list journaled file changes")
     parser.add_argument("--serve", action="store_true", help="run the daemon + web chat panel")
+    parser.add_argument(
+        "--inbox", action="store_true", help="read notifications from autonomous runs"
+    )
+    parser.add_argument("--schedules", action="store_true", help="list recurring autonomous tasks")
+    parser.add_argument("--run-due", action="store_true", help="run due schedules once (for cron)")
     parser.add_argument("--port", type=int, default=4527, help="daemon port (default 4527)")
     parser.add_argument("--version", action="version", version=f"friday {__version__}")
     args = parser.parse_args()
