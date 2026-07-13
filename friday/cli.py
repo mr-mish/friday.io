@@ -314,7 +314,10 @@ async def _run_handsfree(config) -> int:
     verifier = None
     if config.verify_speaker:
         if not verifier_available():
-            print(f"{YELLOW}verify_speaker is on but resemblyzer is missing — aborting.{RESET}")
+            print(
+                f"{YELLOW}verify_speaker is on but speechbrain is missing — "
+                f"install it with: uv sync --extra handsfree. Aborting.{RESET}"
+            )
             return 1
         verifier = SpeakerVerifier(config.data_dir, threshold=config.verify_threshold)
         if not verifier.enrolled:
