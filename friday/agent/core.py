@@ -10,6 +10,7 @@ today, voice later).
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
@@ -34,7 +35,7 @@ from friday.autonomy.notify import Inbox
 from friday.autonomy.schedule import ScheduleStore
 from friday.autonomy.tools import build_autonomy_server
 from friday.config import FridayConfig
-from friday.fs.audit import AuditLog
+from friday.fs.audit import AuditLog, change_preview, summarize_result
 from friday.fs.permissions import Decision, PermissionGate, Verdict
 from friday.fs.undo import UndoJournal
 from friday.memory.index import FileIndex
@@ -148,7 +149,12 @@ class FridayAgent:
                 # commands) without ever consulting can_use_tool, but hooks see
                 # every call. The hook maps the gate's verdict to allow/deny,
                 # or "ask" — which routes to can_use_tool for the user prompt.
-                hooks={"PreToolUse": [HookMatcher(hooks=[self._policy_hook])]},
+                hooks={
+                    "PreToolUse": [HookMatcher(hooks=[self._policy_hook])],
+                    # Record what actually happened (result or error) so the
+                    # audit trail closes the loop on each allowed tool call.
+                    "PostToolUse": [HookMatcher(hooks=[self._outcome_hook])],
+                },
                 setting_sources=[],  # never inherit the host's Claude Code settings
             )
         )
@@ -173,6 +179,7 @@ class FridayAgent:
             verdict=decision.verdict.value,
             tier=decision.tier.value,
             reason=decision.reason,
+            change=change_preview(tool_name, tool_input),
         )
         if decision.verdict is Verdict.ALLOW:
             self._snapshot_for_undo(tool_name, tool_input)
@@ -188,6 +195,19 @@ class FridayAgent:
                 "permissionDecisionReason": decision.reason,
             }
         }
+
+    async def _outcome_hook(
+        self, hook_input: HookInput, _tool_use_id: str | None, _context: HookContext
+    ) -> HookJSONOutput:
+        """PostToolUse: journal the outcome of a tool call. Never blocks or
+        raises — a bad audit write must not derail the agent."""
+        with contextlib.suppress(Exception):
+            self.audit.record(
+                "tool_result",
+                tool=str(hook_input.get("tool_name", "")),
+                result=summarize_result(hook_input.get("tool_response")),
+            )
+        return {}
 
     async def _can_use_tool(
         self, tool_name: str, tool_input: dict, _context: ToolPermissionContext
@@ -206,9 +226,16 @@ class FridayAgent:
         return PermissionResultAllow()
 
     def _snapshot_for_undo(self, tool_name: str, tool_input: dict) -> None:
-        """Journal the pre-write state so `friday --undo` can revert it."""
-        if tool_name in ("Write", "Edit") and tool_input.get("file_path"):
-            self.undo.record_change(Path(str(tool_input["file_path"])))
+        """Journal the pre-write state so `friday --undo` can revert it.
+
+        NotebookEdit carries its target in ``notebook_path``; the others use
+        ``file_path``. Bash-driven writes still aren't tracked (see undo.py).
+        """
+        if tool_name not in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+            return
+        path = tool_input.get("file_path") or tool_input.get("notebook_path")
+        if path:
+            self.undo.record_change(Path(str(path)))
 
     async def ask(self, prompt: str) -> AsyncIterator[AgentEvent]:
         """Send one user turn; yield events as the response streams in."""
