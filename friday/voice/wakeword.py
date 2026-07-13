@@ -97,7 +97,7 @@ BLOCK_SAMPLES = 1280  # openWakeWord is designed for 80 ms @ 16 kHz blocks
 class WakeWordDetector:
     """Feed 16 kHz audio frames of any size; detect() fires once per activation."""
 
-    def __init__(self, model: str = "hey_jarvis", threshold: float = 0.6):
+    def __init__(self, model: str = "hey_jarvis", threshold: float = 0.5):
         # Explicit submodule import: some openwakeword versions don't bind
         # `utils` on the package from a bare `import openwakeword`.
         import numpy as np
