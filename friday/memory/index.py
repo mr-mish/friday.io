@@ -66,6 +66,10 @@ class FileIndex:
         self.roots = roots
         self.denied = denied
         self._db = sqlite3.connect(db_path, check_same_thread=False)
+        # Shared DB with MemoryStore/schedules; WAL + busy timeout avoid lock
+        # contention when the autonomy loop refreshes while chat is querying.
+        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db.execute("PRAGMA busy_timeout=5000")
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS indexed_files "
             "(path TEXT PRIMARY KEY, mtime REAL, size INTEGER)"

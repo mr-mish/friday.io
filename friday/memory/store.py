@@ -30,15 +30,28 @@ class MemoryStore:
     def __init__(self, db_path: Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(db_path, check_same_thread=False)
+        # WAL + a busy timeout let the memory store and file index share one
+        # database file across threads (daemon + autonomy loop) without
+        # "database is locked" errors.
+        self._db.execute("PRAGMA journal_mode=WAL")
+        self._db.execute("PRAGMA busy_timeout=5000")
         self._db.execute(
             "CREATE VIRTUAL TABLE IF NOT EXISTS memories USING fts5(fact, created UNINDEXED)"
         )
         self._db.commit()
 
     def remember(self, fact: str) -> int:
+        fact = fact.strip()
+        # De-duplicate: re-stating a known fact returns the existing id rather
+        # than accumulating identical rows that would bloat the prompt.
+        existing = self._db.execute(
+            "SELECT rowid FROM memories WHERE fact = ? LIMIT 1", (fact,)
+        ).fetchone()
+        if existing:
+            return existing[0]
         created = datetime.now(UTC).isoformat()
         cursor = self._db.execute(
-            "INSERT INTO memories (fact, created) VALUES (?, ?)", (fact.strip(), created)
+            "INSERT INTO memories (fact, created) VALUES (?, ?)", (fact, created)
         )
         self._db.commit()
         return cursor.lastrowid
