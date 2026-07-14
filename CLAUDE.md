@@ -60,20 +60,26 @@ uv run friday --serve             # web chat panel at http://127.0.0.1:4527
   `[tasks.NAME]` (named prompts for `--run-task`; cron/launchd does the
   scheduling). The skill name "memory" is reserved for the built-in server.
 - `friday/cli.py` — REPL / one-shot entry point (`friday` script).
-- `friday/memory/` — long-term memory + file content index, both SQLite FTS5
+- `friday/memory/` — long-term memory, persistent conversation history, and
+  file content index, all SQLite FTS5
   (BM25) in `data_dir/friday.db`; `search()` is the interface a future vector
   backend replaces. `tools.py` exposes remember/recall/forget/search_files to
   the agent as in-process MCP tools (server name "memory"); recent memories
   are injected into the system prompt at session start. The index walks
   granted roots incrementally (mtime/size), extracts text from plain files
   plus PDF (pypdf) and DOCX (python-docx), and enforces the deny list at
-  index time.
+  index time. `history.py` keeps the shared user/assistant transcript across
+  reconnects and daemon restarts; recent turns are restored as explicitly
+  untrusted context when a new SDK session starts.
 - `friday/server/` — optional extra (`server`); localhost FastAPI daemon
-  (`app.py`) wrapping one `FridayAgent`. A single WebSocket client streams
-  agent events and answers permission asks over the socket (fail-closed:
-  disconnect or 120 s timeout = declined); `agent_factory` is injectable so
-  tests drive it with a fake agent. `static/index.html` is the self-contained
-  chat panel. Browser E2E lives in tests/test_panel_e2e.py (skipped unless
+  (`app.py`) wrapping one `FridayAgent`. `hub.py` serializes turns from all
+  connected text/voice clients into that one SDK session, broadcasts events,
+  and multiplexes permission asks (fail-closed: no clients or 120 s timeout =
+  declined). `voice_bridge.py` keeps browser STT/TTS local via faster-whisper
+  and Piper; `static/index.html` is the self-contained voice/chat panel.
+  The CLI auto-attaches to the daemon when available and falls back to an
+  embedded session otherwise. Browser E2E lives in tests/test_panel_e2e.py
+  (skipped unless
   `FRIDAY_E2E=1` — it needs a live agent).
 - `friday/voice/` — optional extra (`voice`); every heavy import is lazy so
   text mode and tests never need it. `chunker.SentenceStream` turns the

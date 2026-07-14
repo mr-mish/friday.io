@@ -17,6 +17,15 @@ def test_remember_recall_forget(tmp_path: Path):
     assert store.search("accountant") == []
 
 
+def test_remember_deduplicates_identical_facts(tmp_path: Path):
+    store = MemoryStore(tmp_path / "friday.db")
+    first = store.remember("Invoices should always be exported as PDF.")
+    # Re-stating the same fact (even with surrounding whitespace) is a no-op.
+    again = store.remember("  Invoices should always be exported as PDF.  ")
+    assert again == first
+    assert len(store.recent(limit=10)) == 1
+
+
 def test_recent_returns_oldest_first_capped(tmp_path: Path):
     store = MemoryStore(tmp_path / "friday.db")
     for i in range(5):

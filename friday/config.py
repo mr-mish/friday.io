@@ -166,5 +166,7 @@ def load_config(path: Path | None = None) -> FridayConfig:
     config.wake_stt_model = voice.get("wake_stt_model", config.wake_stt_model)
     config.wake_threshold = float(voice.get("wake_threshold", config.wake_threshold))
     config.verify_speaker = bool(voice.get("verify_speaker", False))
-    config.verify_threshold = float(voice.get("verify_threshold", 0.75))
+    # Fall back to the dataclass default so the "no key" and "no config file"
+    # paths agree (both 0.5, matching verify.SpeakerVerifier.DEFAULT_THRESHOLD).
+    config.verify_threshold = float(voice.get("verify_threshold", config.verify_threshold))
     return config
