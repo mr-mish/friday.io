@@ -62,6 +62,13 @@
     padding: 0 22px; font-weight: 700; cursor: pointer;
   }
   form button:disabled { opacity: .4; cursor: default; }
+  #mic {
+    background: none; color: var(--accent); border: 1px solid var(--accent);
+    min-width: 52px; padding: 0 14px; font-size: 18px;
+  }
+  #mic.recording {
+    color: #ff6b6b; border-color: #ff6b6b; box-shadow: 0 0 10px rgba(255,107,107,.35);
+  }
 
   dialog {
     background: var(--panel); color: var(--text); border: 1px solid var(--warn);
@@ -101,6 +108,7 @@
   <main id="chat"></main>
 
   <form id="composer">
+    <button id="mic" type="button" title="Start local push-to-talk">●</button>
     <textarea id="input" placeholder="Talk to FRIDAY…" autofocus></textarea>
     <button id="send" type="submit" disabled>Send</button>
   </form>
@@ -122,11 +130,14 @@
   const chat = document.getElementById("chat");
   const input = document.getElementById("input");
   const send = document.getElementById("send");
+  const mic = document.getElementById("mic");
   const pulse = document.getElementById("pulse");
   const sub = document.getElementById("sub");
   const confirmDlg = document.getElementById("confirm");
 
-  let ws = null, fridayEl = null, thinkingEl = null, confirmId = null;
+  let ws = null, fridayEl = null, thinkingEl = null, confirmId = null, clientId = null;
+  let mediaRecorder = null, mediaStream = null, audioChunks = [], isBusy = false;
+  let audioContext = null, nextAudioTime = 0, audioSources = new Set();
 
   function el(cls, text) {
     const node = document.createElement("div");
@@ -138,6 +149,7 @@
   }
 
   function setBusy(busy) {
+    isBusy = busy;
     send.disabled = busy || !ws || ws.readyState !== 1;
     if (busy && !thinkingEl) thinkingEl = el("thinking", "▍");
     if (!busy && thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
@@ -145,14 +157,29 @@
 
   function connect() {
     ws = new WebSocket(`ws://${location.host}/ws`);
-    ws.onopen = () => { pulse.classList.remove("offline"); sub.textContent = "online"; setBusy(false); };
+    ws.onopen = () => {
+      pulse.classList.remove("offline"); sub.textContent = "online"; setBusy(false);
+      ws.send(JSON.stringify({ type: "hello", client: "web" }));
+    };
     ws.onclose = () => {
       pulse.classList.add("offline"); sub.textContent = "reconnecting…";
       send.disabled = true; setTimeout(connect, 1500);
     };
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
-      if (msg.type === "text") {
+      if (msg.type === "sync") {
+        clientId = msg.client_id;
+        chat.innerHTML = "";
+        for (const item of msg.messages || []) {
+          el(item.role === "user" ? "msg user" : "msg friday", item.text);
+        }
+      } else if (msg.type === "user") {
+        if (msg.source !== clientId) el("msg user", msg.text);
+      } else if (msg.type === "transcript") {
+        el("msg user", msg.text);
+      } else if (msg.type === "turn_start") {
+        fridayEl = null; setBusy(true);
+      } else if (msg.type === "text") {
         if (!fridayEl) fridayEl = el("msg friday", "");
         fridayEl.textContent += (fridayEl.textContent ? "\n" : "") + msg.text;
         chat.scrollTop = chat.scrollHeight;
@@ -169,6 +196,15 @@
         confirmDlg.showModal();
       } else if (msg.type === "notice") {
         el("tool", "🔔 " + msg.message);
+      } else if (msg.type === "audio") {
+        playPcm(msg.pcm_b64, msg.sample_rate);
+      } else if (msg.type === "voice_state") {
+        sub.textContent = msg.state === "idle" ? "online" : msg.state + "…";
+      } else if (msg.type === "busy") {
+        el("tool", "FRIDAY is finishing another turn. Try again in a moment.");
+        setBusy(true);
+      } else if (msg.type === "interrupted") {
+        fridayEl = null; setBusy(false);
       } else if (msg.type === "error") {
         el("msg friday", "⚠ " + msg.message); fridayEl = null; setBusy(false);
       }
@@ -190,6 +226,70 @@
     el("msg user", text);
     ws.send(JSON.stringify({ type: "user", text }));
     input.value = ""; fridayEl = null; setBusy(true);
+  };
+
+  function stopAudio() {
+    for (const source of audioSources) { try { source.stop(); } catch (_) {} }
+    audioSources.clear(); nextAudioTime = 0;
+  }
+
+  function playPcm(encoded, sampleRate) {
+    if (!audioContext) audioContext = new AudioContext();
+    const raw = atob(encoded);
+    const data = new Float32Array(Math.floor(raw.length / 2));
+    for (let i = 0; i < data.length; i++) {
+      let value = raw.charCodeAt(i * 2) | (raw.charCodeAt(i * 2 + 1) << 8);
+      if (value >= 32768) value -= 65536;
+      data[i] = value / 32768;
+    }
+    const buffer = audioContext.createBuffer(1, data.length, sampleRate);
+    buffer.copyToChannel(data, 0);
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer; source.connect(audioContext.destination);
+    const start = Math.max(audioContext.currentTime, nextAudioTime);
+    source.start(start); nextAudioTime = start + buffer.duration;
+    audioSources.add(source);
+    source.onended = () => audioSources.delete(source);
+  }
+
+  function bytesToBase64(bytes) {
+    let binary = "";
+    const size = 0x8000;
+    for (let i = 0; i < bytes.length; i += size) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + size));
+    }
+    return btoa(binary);
+  }
+
+  mic.onclick = async () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      mediaRecorder.stop();
+      mic.classList.remove("recording"); mic.textContent = "●";
+      return;
+    }
+    if (!ws || ws.readyState !== 1) return;
+    stopAudio();
+    if (isBusy) ws.send(JSON.stringify({ type: "interrupt" }));
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferred = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg"];
+      const mimeType = preferred.find(t => MediaRecorder.isTypeSupported(t)) || "";
+      mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : {});
+      audioChunks = [];
+      mediaRecorder.ondataavailable = event => { if (event.data.size) audioChunks.push(event.data); };
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const format = (mediaRecorder.mimeType.split("/")[1] || "webm").split(";")[0];
+        ws.send(JSON.stringify({ type: "voice", audio: bytesToBase64(bytes), format }));
+        mediaStream.getTracks().forEach(track => track.stop());
+        sub.textContent = "transcribing…"; setBusy(true);
+      };
+      mediaRecorder.start();
+      mic.classList.add("recording"); mic.textContent = "■"; sub.textContent = "listening…";
+    } catch (error) {
+      el("msg friday", "Microphone unavailable: " + error.message);
+    }
   };
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {

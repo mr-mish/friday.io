@@ -48,6 +48,63 @@ async def _run_turn(agent: FridayAgent, prompt: str) -> None:
             print(f"{DIM}  ({payload}){RESET}")
 
 
+async def _confirm_daemon(message: dict) -> bool:
+    print(
+        f"\n{YELLOW}⚠ FRIDAY wants to run {BOLD}{message.get('tool', '')}{RESET}"
+        f"{YELLOW} — {message.get('reason', '')}"
+    )
+    if detail := message.get("detail"):
+        print(f"  {detail}")
+    try:
+        answer = await asyncio.to_thread(input, f"  Allow? [y/N] {RESET}")
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
+async def _connect_daemon(port: int):
+    """Join the unified daemon when it is running; otherwise use embedded mode."""
+    try:
+        from friday.server.client import DaemonClient
+
+        client = DaemonClient(
+            f"ws://127.0.0.1:{port}/ws", confirm_callback=_confirm_daemon
+        )
+        await client.connect()
+        return client
+    except Exception:
+        return None
+
+
+async def _run_session(agent, prompt: str, shared: bool = False) -> int:
+    if prompt:
+        await _run_turn(agent, prompt)
+        return 0
+    mode = " · shared daemon session" if shared else ""
+    print(
+        f"{CYAN}FRIDAY v{__version__}{RESET}{mode} — "
+        "type your request, or 'exit' to quit.\n"
+    )
+    while True:
+        try:
+            line = await asyncio.to_thread(input, f"{BOLD}you ›{RESET} ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        line = line.strip()
+        if not line:
+            continue
+        if line.lower() in ("exit", "quit"):
+            break
+        try:
+            await _run_turn(agent, line)
+        except KeyboardInterrupt:
+            await agent.interrupt()
+            print(f"\n{DIM}(interrupted){RESET}")
+        print()
+    return 0
+
+
 async def _main(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
     if args.model:
@@ -176,36 +233,23 @@ async def _main(args: argparse.Namespace) -> int:
     if args.listen_test:
         return await _listen_test(config)
 
+    daemon = await _connect_daemon(args.port)
+    if daemon is not None:
+        try:
+            if args.handsfree:
+                return await _run_handsfree(config, daemon)
+            if args.voice:
+                return await _run_voice(daemon, config)
+            return await _run_session(daemon, prompt, shared=True)
+        finally:
+            await daemon.close()
+
     if args.handsfree:
         return await _run_handsfree(config)
-
     async with FridayAgent(config, confirm=_confirm) as agent:
         if args.voice:
             return await _run_voice(agent, config)
-
-        if prompt:
-            await _run_turn(agent, prompt)
-            return 0
-
-        print(f"{CYAN}FRIDAY v{__version__}{RESET} — type your request, or 'exit' to quit.\n")
-        while True:
-            try:
-                line = await asyncio.to_thread(input, f"{BOLD}you ›{RESET} ")
-            except (EOFError, KeyboardInterrupt):
-                print()
-                break
-            line = line.strip()
-            if not line:
-                continue
-            if line.lower() in ("exit", "quit"):
-                break
-            try:
-                await _run_turn(agent, line)
-            except KeyboardInterrupt:
-                await agent.interrupt()
-                print(f"\n{DIM}(interrupted){RESET}")
-            print()
-    return 0
+        return await _run_session(agent, prompt)
 
 
 async def _run_voice(agent: FridayAgent, config) -> int:
@@ -292,7 +336,7 @@ async def _listen_test(config) -> int:
     return 0
 
 
-async def _run_handsfree(config) -> int:
+async def _run_handsfree(config, shared_agent=None) -> int:
     from friday.voice import VOICE_INSTALL_HINT, voice_available
     from friday.voice.wakeword import WAKEWORD_INSTALL_HINT, wakeword_available
 
@@ -341,8 +385,8 @@ async def _run_handsfree(config) -> int:
         )
 
     frames = FrameStream()
-    session_obj = None
-    async with FridayAgent(config, confirm=confirm) as agent:
+
+    async def run(agent) -> None:
         session_obj = HandsFreeSession(
             agent=agent,
             transcriber=transcriber,
@@ -355,11 +399,37 @@ async def _run_handsfree(config) -> int:
             undo=UndoJournal(config.data_dir),
         )
         holder["session"] = session_obj
+        if shared_agent is not None:
+            from friday.fs.permissions import Tier, Verdict
+
+            async def spoken_daemon_confirm(message: dict) -> bool:
+                detail = str(message.get("detail", ""))
+                tool_input = (
+                    {"command": detail}
+                    if message.get("tool") == "Bash"
+                    else {"file_path": detail}
+                )
+                decision = Decision(
+                    Verdict.CONFIRM,
+                    Tier.DANGEROUS,
+                    str(message.get("reason", "permission required")),
+                )
+                return await session_obj.spoken_confirm(
+                    str(message.get("tool", "")), tool_input, decision
+                )
+
+            shared_agent.confirm_callback = spoken_daemon_confirm
         frames.start()
         try:
             await session_obj.run()
         finally:
             frames.stop()
+
+    if shared_agent is not None:
+        await run(shared_agent)
+    else:
+        async with FridayAgent(config, confirm=confirm) as agent:
+            await run(agent)
     return 0
 
 

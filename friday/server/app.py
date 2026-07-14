@@ -1,9 +1,11 @@
-"""FastAPI app: one agent session, one chat client, everything over localhost.
+"""Unified local app: one persistent agent session shared by every client.
 
 WebSocket protocol (JSON messages):
 
     client -> server:
         {"type": "user", "text": "..."}                     one chat turn
+        {"type": "voice", "audio": "<base64>", "format": "webm"}  local STT turn
+        {"type": "interrupt"}                                barge in / cancel
         {"type": "confirm_response", "id": "...", "approved": true|false}
 
     server -> client:
@@ -11,6 +13,8 @@ WebSocket protocol (JSON messages):
         {"type": "tool", "label": "Read(...)"}              tool activity
         {"type": "done", "cost": "$0.0123"}                 end of turn
         {"type": "confirm", "id", "tool", "detail", "reason"}   permission ask
+        {"type": "sync", "messages": [...]}                   persistent history
+        {"type": "audio", "pcm_b64", "sample_rate"}           local Piper audio
         {"type": "error", "message": "..."}
 
 Confirmations fail closed: no connected client, a disconnect mid-prompt, or
@@ -21,8 +25,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
-import uuid
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -33,13 +35,13 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from friday import __version__
 from friday.config import FridayConfig
-from friday.fs.permissions import Decision
+from friday.server.hub import AgentHub
+from friday.server.voice_bridge import VoiceBridge
 
-CONFIRM_TIMEOUT_S = 120
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-async def _autonomy_forever(app: FastAPI, config: FridayConfig, session: ChatSession) -> None:
+async def _autonomy_forever(app: FastAPI, config: FridayConfig, hub: AgentHub) -> None:
     """Schedules + triggers, forever, inside the daemon (Phase 8/9)."""
     from friday.autonomy.loop import AutonomyLoop, register_maintenance
     from friday.autonomy.watcher import FileWatcher, TriggerRule
@@ -53,7 +55,7 @@ async def _autonomy_forever(app: FastAPI, config: FridayConfig, session: ChatSes
     )
 
     async def notify_client(message: str) -> None:
-        await session.send({"type": "notice", "message": message})
+        await hub.broadcast({"type": "notice", "message": message})
 
     loop = AutonomyLoop(
         config, agent.schedules, agent.inbox, watcher, agent.index, notify_client
@@ -64,61 +66,10 @@ async def _autonomy_forever(app: FastAPI, config: FridayConfig, session: ChatSes
         await asyncio.sleep(config.poll_seconds)
 
 
-class ChatSession:
-    """Bridges one WebSocket client to the agent, including confirmations."""
-
-    def __init__(self) -> None:
-        self.ws: WebSocket | None = None
-        self._pending: dict[str, asyncio.Future[bool]] = {}
-
-    async def send(self, payload: dict[str, Any]) -> None:
-        if self.ws is None:
-            return
-        try:
-            await self.ws.send_text(json.dumps(payload))
-        except Exception:  # client vanished mid-send; the turn keeps running
-            self.drop_client()
-
-    async def confirm(self, tool_name: str, tool_input: dict, decision: Decision) -> bool:
-        """The agent's ConfirmFn: ask the connected client, fail closed."""
-        if self.ws is None:
-            return False
-        confirm_id = uuid.uuid4().hex
-        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
-        self._pending[confirm_id] = future
-        detail = str(tool_input.get("command") or tool_input.get("file_path") or "")
-        await self.send(
-            {
-                "type": "confirm",
-                "id": confirm_id,
-                "tool": tool_name,
-                "detail": detail,
-                "reason": decision.reason,
-            }
-        )
-        try:
-            return await asyncio.wait_for(future, timeout=CONFIRM_TIMEOUT_S)
-        except (TimeoutError, asyncio.CancelledError):
-            return False
-        finally:
-            self._pending.pop(confirm_id, None)
-
-    def resolve(self, confirm_id: str, approved: bool) -> None:
-        future = self._pending.get(confirm_id)
-        if future is not None and not future.done():
-            future.set_result(bool(approved))
-
-    def drop_client(self) -> None:
-        self.ws = None
-        for future in self._pending.values():
-            if not future.done():
-                future.set_result(False)  # disconnect = declined
-        self._pending.clear()
-
-
 def create_app(
     config: FridayConfig,
     agent_factory: Callable[..., Any] | None = None,
+    voice_bridge_factory: Callable[[FridayConfig], Any] | None = None,
 ) -> FastAPI:
     """Build the daemon app.
 
@@ -131,24 +82,27 @@ def create_app(
 
         agent_factory = lambda confirm: FridayAgent(config, confirm=confirm)  # noqa: E731
 
-    session = ChatSession()
+    voice_bridge_factory = voice_bridge_factory or VoiceBridge
+    hub = AgentHub(voice_bridge=voice_bridge_factory(config))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.agent = agent_factory(session.confirm)
+        app.state.agent = agent_factory(hub.confirm)
+        hub.set_agent(app.state.agent)
         await app.state.agent.__aenter__()
         autonomy_task = None
         if config.autonomy_enabled:
-            autonomy_task = asyncio.create_task(_autonomy_forever(app, config, session))
+            autonomy_task = asyncio.create_task(_autonomy_forever(app, config, hub))
         try:
             yield
         finally:
             if autonomy_task is not None:
                 autonomy_task.cancel()
+            await hub.close()
             await app.state.agent.__aexit__(None, None, None)
 
     app = FastAPI(title="FRIDAY", version=__version__, lifespan=lifespan)
-    app.state.session = session
+    app.state.hub = hub
     app.state.agent = None
 
     @app.get("/")
@@ -181,44 +135,48 @@ def create_app(
             [{"id": n.id, "ts": n.ts, "source": n.source, "message": n.message} for n in items]
         )
 
+    @app.get("/api/history")
+    async def history_endpoint() -> JSONResponse:
+        history = getattr(app.state.agent, "history", None)
+        items = history.recent(limit=100) if history else []
+        return JSONResponse(
+            [
+                {
+                    "id": m.id,
+                    "role": m.role,
+                    "text": m.content,
+                    "modality": m.modality,
+                    "created": m.created,
+                }
+                for m in items
+            ]
+        )
+
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
         await ws.accept()
-        if session.ws is not None:
-            await ws.send_text(json.dumps({"type": "error", "message": "already connected"}))
-            await ws.close()
-            return
-        session.ws = ws
-        prompts: asyncio.Queue[str | None] = asyncio.Queue()
-
-        async def receiver() -> None:
-            try:
-                while True:
-                    message = json.loads(await ws.receive_text())
-                    if message.get("type") == "user":
-                        await prompts.put(str(message.get("text", "")))
-                    elif message.get("type") == "confirm_response":
-                        session.resolve(str(message.get("id")), bool(message.get("approved")))
-            except (WebSocketDisconnect, RuntimeError):
-                await prompts.put(None)  # unblock the main loop
-
-        receive_task = asyncio.create_task(receiver())
+        client = await hub.register(ws)
         try:
             while True:
-                prompt = await prompts.get()
-                if prompt is None:
-                    break
-                if not prompt.strip():
-                    continue
-                try:
-                    async for kind, payload in app.state.agent.ask(prompt):
-                        key = {"text": "text", "tool": "label", "done": "cost"}.get(kind)
-                        if key:
-                            await session.send({"type": kind, key: payload})
-                except Exception as exc:  # surface agent errors to the UI
-                    await session.send({"type": "error", "message": str(exc)})
+                message = await ws.receive_json()
+                message_type = message.get("type")
+                if message_type == "hello":
+                    client.kind = str(message.get("client", "web"))
+                elif message_type == "user":
+                    await hub.submit_text(client.id, str(message.get("text", "")))
+                elif message_type == "voice":
+                    await hub.submit_audio(
+                        client.id,
+                        str(message.get("audio", "")),
+                        str(message.get("format", "webm")),
+                    )
+                elif message_type == "interrupt":
+                    await hub.interrupt()
+                elif message_type == "confirm_response":
+                    hub.resolve(str(message.get("id")), bool(message.get("approved")))
+        except (WebSocketDisconnect, RuntimeError):
+            pass
         finally:
-            receive_task.cancel()
-            session.drop_client()
+            hub.unregister(client.id)
 
     return app
