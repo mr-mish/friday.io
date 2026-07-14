@@ -7,10 +7,23 @@ audit for everything else.
 
 See [docs/PLAN.md](docs/PLAN.md) for the architecture and roadmap.
 
-## Status: Phase 9 (autonomous + hands-free)
+## Status: Unified app (Phase 9 foundation)
 
 Working today:
 
+- **One seamless app** — `friday --serve` owns one long-lived agent session
+  shared by the browser, terminal REPL, push-to-talk, and hands-free modes.
+  Start a thought by voice and continue it by typing without losing context.
+  Multiple local clients can observe the same turn and answer permission
+  prompts; agent turns are serialized to keep the SDK session safe.
+- **Persistent conversation memory** — user and assistant turns are stored in
+  the local SQLite database, restored after reconnect/restart, and shown in
+  the browser. This transcript is separate from FRIDAY's curated facts and
+  preferences.
+- **Voice in the web app** — click the microphone for local push-to-talk.
+  Browser audio travels only over localhost, is transcribed by faster-whisper,
+  and FRIDAY's Piper response streams back to the browser. Starting a new
+  recording barges in and interrupts the current response.
 - **Autonomy** — tell FRIDAY "every Friday at five, summarize my week" and it
   schedules itself; file triggers react to changes in watched folders. Runs
   happen unattended in the `--serve` daemon (or via `friday --run-due` from
@@ -27,10 +40,9 @@ Working today:
   consolidation run as built-in schedules; `friday --doctor` reports the
   health of the whole stack.
 
-- **Web chat panel** (`friday --serve`) — a localhost daemon (FastAPI +
-  WebSocket) serving a streaming chat UI. Permission prompts appear as
-  native dialogs; a memories drawer shows what FRIDAY remembers. This is the
-  UI-agnostic backend a native tray app (Tauri) can wrap next.
+- **Web app** (`friday --serve`) — a localhost daemon (FastAPI + WebSocket)
+  serving streaming text and voice. Permission prompts appear as native
+  dialogs; a memories drawer shows what FRIDAY remembers.
 
 - **Skills** — plug any MCP server into FRIDAY with a `[skills.NAME]` config
   entry (calendar, email, weather, Notion, …). Untrusted skills confirm every
@@ -74,9 +86,13 @@ CLI (the Agent SDK's runtime) with an authenticated Anthropic account.
 ### Desktop panel
 
 ```bash
-uv sync --extra server    # adds fastapi, uvicorn, websockets
-uv run friday --serve     # chat panel at http://127.0.0.1:4527
+uv sync --extra server --extra voice
+uv run friday --serve     # unified text + voice app at http://127.0.0.1:4527
+uv run friday             # another terminal joins that same session
 ```
+
+If the daemon is not running, `friday`, `friday --voice`, and
+`friday --handsfree` retain their embedded/offline session fallback.
 
 ### Voice
 
