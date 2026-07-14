@@ -12,7 +12,7 @@ from friday.config import FridayConfig
 from friday.voice.chunker import SentenceStream, strip_markdown
 
 MAX_AUDIO_BYTES = 15 * 1024 * 1024
-ALLOWED_FORMATS = {"webm", "wav", "ogg", "mp3", "m4a"}
+ALLOWED_FORMATS = {"webm", "wav", "ogg", "mp3", "m4a", "mp4"}
 
 
 class VoiceBridge:
